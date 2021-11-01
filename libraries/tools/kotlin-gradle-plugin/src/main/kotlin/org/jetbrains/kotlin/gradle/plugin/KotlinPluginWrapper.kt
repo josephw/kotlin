@@ -36,6 +36,7 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.pm20.KotlinPm20GradlePlugin
 import org.jetbrains.kotlin.gradle.plugin.mpp.pm20.KotlinPm20ProjectExtension
 import org.jetbrains.kotlin.gradle.plugin.sources.DefaultKotlinSourceSetFactory
 import org.jetbrains.kotlin.gradle.plugin.statistics.KotlinBuildStatsService
+import org.jetbrains.kotlin.gradle.report.BuildMetricsReporterService
 import org.jetbrains.kotlin.gradle.targets.js.KotlinJsCompilerAttribute
 import org.jetbrains.kotlin.gradle.targets.js.KotlinJsPlugin
 import org.jetbrains.kotlin.gradle.targets.js.npm.addNpmDependencyExtension
@@ -91,6 +92,10 @@ abstract class KotlinBasePluginWrapper : Plugin<Project> {
         KotlinGradleBuildServices.registerIfAbsent(project).get()
 
         KotlinGradleBuildServices.detectKotlinPluginLoadedInMultipleProjects(project, kotlinPluginVersion)
+
+        val buildMetricReporter = BuildMetricsReporterService.registerIfAbsent(project, BuildMetricsReporterService.getStartParameters(project))
+
+        buildMetricReporter?.also { BuildEventsListenerRegistryHolder.getInstance(project).listenerRegistry.onTaskCompletion(it) }
 
         project.createKotlinExtension(projectExtensionClass).apply {
             coreLibrariesVersion = kotlinPluginVersion

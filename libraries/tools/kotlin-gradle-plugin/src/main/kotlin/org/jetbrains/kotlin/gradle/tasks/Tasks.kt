@@ -50,6 +50,7 @@ import org.jetbrains.kotlin.gradle.plugin.*
 import org.jetbrains.kotlin.gradle.plugin.mpp.*
 import org.jetbrains.kotlin.gradle.plugin.mpp.pm20.KotlinCompilationData
 import org.jetbrains.kotlin.gradle.plugin.statistics.KotlinBuildStatsService
+import org.jetbrains.kotlin.gradle.report.BuildMetricsReporterService
 import org.jetbrains.kotlin.gradle.report.ReportingSettings
 import org.jetbrains.kotlin.gradle.targets.js.ir.isProduceUnzippedKlib
 import org.jetbrains.kotlin.gradle.utils.*
@@ -245,7 +246,14 @@ abstract class AbstractKotlinCompile<T : CommonCompilerArguments> : AbstractKotl
         incremental
 
     @get:Internal
-    internal var reportingSettings = ReportingSettings()
+    val startParameters = BuildMetricsReporterService.getStartParameters(project)
+
+    @get:Internal
+//    to inject service properly into task access to TaskProvider in Plugin is required. will be changed in future
+    val buildMetricsReporterService = BuildMetricsReporterService.registerIfAbsent(project, startParameters)
+
+    @get:Internal
+    internal var reportingSettings = buildMetricsReporterService?.get()?.parameters?.reportingSettings ?: ReportingSettings()
 
     @get:Input
     internal val useModuleDetection: Property<Boolean> = objects.property(Boolean::class.java).value(false)
@@ -377,6 +385,8 @@ abstract class AbstractKotlinCompile<T : CommonCompilerArguments> : AbstractKotl
 
             executeImpl(inputChanges, outputsBackup)
         }
+
+        buildMetricsReporterService?.also { it.get().add(path, this::class.java.name, buildMetrics) }
     }
 
     protected open fun skipCondition(): Boolean =
