@@ -5,6 +5,7 @@
 package codegen.bce.arraysForLoops
 
 import kotlin.test.*
+import kotlin.reflect.KProperty
 
 @Test fun forEachIndexedTest() {
     val array = Array(10) { 0 }
@@ -468,5 +469,96 @@ fun foo(a: Int, b : Int): Int = a + b * 2
 
     for (i in 0..array.size - 2) {
         array[i+1] = array[i]
+    }
+}
+
+var needSmallArray = true
+
+class WithGetter() {
+    val array: Array<Int>
+        get() = if (needSmallArray)
+            Array(10) { 100 }
+        else
+            Array(100) { 100 }
+}
+
+class Delegate {
+    operator fun getValue(thisRef: Any?, property: KProperty<*>): Array<Int> {
+        return if (needSmallArray)
+            Array(10) { 100 }
+        else
+            Array(100) { 100 }
+    }
+}
+
+class WithDelegates {
+    val array by Delegate()
+}
+
+open class Base {
+    open val array = Array(10) { 100 }
+    val array1 by Delegate()
+}
+
+class Child : Base() {
+    override val array: Array<Int>
+        get() = if (needSmallArray)
+            Array(10) { 100 }
+        else
+            Array(100) { 100 }
+}
+
+@Test fun withGetter() {
+    val obj = WithGetter()
+    needSmallArray = false
+    assertFailsWith<ArrayIndexOutOfBoundsException> {
+        for (i in 0..obj.array.size-1) {
+            needSmallArray = true
+            obj.array[i] = 6
+            needSmallArray = false
+        }
+    }
+}
+
+@Test fun delegatedProperty() {
+    val obj = WithDelegates()
+    needSmallArray = false
+    assertFailsWith<ArrayIndexOutOfBoundsException> {
+        for (i in 0..obj.array.size-1) {
+            needSmallArray = true
+            obj.array[i] = 6
+            needSmallArray = false
+        }
+    }
+}
+
+@Test fun inheritance() {
+    val obj = Child()
+    val base = Base()
+    needSmallArray = false
+    assertFailsWith<ArrayIndexOutOfBoundsException> {
+        for (i in 0..obj.array.size-1) {
+            needSmallArray = true
+            obj.array[i] = 6
+            needSmallArray = false
+        }
+    }
+
+    needSmallArray = false
+    assertFailsWith<ArrayIndexOutOfBoundsException> {
+        for (i in 0..obj.array1.size-1) {
+            needSmallArray = true
+            obj.array1[i] = 6
+            needSmallArray = false
+        }
+    }
+
+    needSmallArray = false
+    assertFailsWith<ArrayIndexOutOfBoundsException> {
+        for (i in 0..obj.array.size-1) {
+            needSmallArray = true
+            base.array[i] = 6
+            needSmallArray = false
+        }
     }
 }

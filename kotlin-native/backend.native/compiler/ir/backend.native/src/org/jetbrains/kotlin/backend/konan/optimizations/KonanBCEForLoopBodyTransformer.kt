@@ -8,11 +8,10 @@ package org.jetbrains.kotlin.backend.konan.optimizations
 import org.jetbrains.kotlin.backend.common.CommonBackendContext
 import org.jetbrains.kotlin.backend.common.lower.loops.*
 import org.jetbrains.kotlin.backend.konan.ir.KonanNameConventions
-import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
-import org.jetbrains.kotlin.ir.declarations.IrVariable
+import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
-import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
+import org.jetbrains.kotlin.ir.symbols.IrSymbol
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.getClass
 import org.jetbrains.kotlin.ir.types.isArray
@@ -20,11 +19,27 @@ import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 import org.jetbrains.kotlin.util.OperatorNameConventions
 
+internal class SymbolsInfo(val symbol: IrSymbol?, val receiversList: MutableList<IrSymbol?>) {
+    fun intersects(other: SymbolsInfo): Boolean {
+        if (symbol != other.symbol)
+            return false
+        val receiversSize = minOf(receiversList.size, other.receiversList.size)
+
+        val zippedReceivers = receiversList.takeLast(receiversSize).zip(other.receiversList.takeLast(receiversSize)).reversed()
+
+        zippedReceivers.forEach {
+            if (it.first != it.second)
+                return false
+        }
+        return true
+    }
+}
+
 // Class contains information about analyzed loop.
-internal data class BoundsCheckAnalysisResult(val boundsAreSafe: Boolean, val arrayInLoop: IrValueSymbol?)
+internal class BoundsCheckAnalysisResult(val boundsAreSafe: Boolean, val arraySymbolsInfo: SymbolsInfo?)
 // TODO: support `forEachIndexed`. Function is inlined and index is separate variable which isn't connected with loop induction variable.
 /**
- * Transformer for for loops bodies replacing get/set operators on analogs without bounds check where it's possible.
+ * Transformer for loops bodies replacing get/set operators on analogs without bounds check where it's possible.
  */
 class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
     lateinit var mainLoopVariable: IrVariable
@@ -41,7 +56,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
         loopHeader = forLoopHeader
         loopVariableComponents = loopComponents
         analysisResult = analyzeLoopHeader(loopHeader)
-        if (analysisResult.boundsAreSafe && analysisResult.arrayInLoop != null)
+        if (analysisResult.boundsAreSafe && analysisResult.arraySymbolsInfo != null)
             loopBody.transformChildrenVoid(this)
     }
 
@@ -93,8 +108,10 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
             }
             else -> false
         }
-        val array = ((functionCall.dispatchReceiver as? IrCall)?.dispatchReceiver as? IrGetValue)?.symbol
-        return BoundsCheckAnalysisResult(boundsAreSafe, array)
+        return if (boundsAreSafe)
+            BoundsCheckAnalysisResult(boundsAreSafe,
+                    (functionCall.dispatchReceiver as? IrCall)?.dispatchReceiver?.let { getSymbolsInfo(it) })
+        else BoundsCheckAnalysisResult(boundsAreSafe, null)
     }
 
     private inline fun checkIrGetValue(value: IrGetValue, condition: (IrExpression) -> BoundsCheckAnalysisResult): BoundsCheckAnalysisResult {
@@ -108,15 +125,80 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
 
     private fun checkIrCallCondition(expression: IrExpression, condition: (IrCall) -> BoundsCheckAnalysisResult): BoundsCheckAnalysisResult =
             when (expression) {
-                is IrCall -> condition(expression)
+                is IrCall -> {
+                    expression.symbol.owner.correspondingPropertySymbol?.let {
+                        // Case of property accessor.
+                        (getSymbolsInfo(expression)?.symbol?.owner as? IrProperty)?.backingField?.initializer?.expression?.let {
+                            checkIrCallCondition(it, condition)
+                        }
+                    } ?: condition(expression)
+                }
                 is IrGetValue -> checkIrGetValue(expression) { valueInitializer -> checkIrCallCondition(valueInitializer, condition) }
                 else -> BoundsCheckAnalysisResult(false, null)
             }
 
+    private val IrProperty.isWithoutSideEffects: Boolean
+        get()  {
+            if (isVar || isDelegated)
+                return false
+
+            val withBackingFiled = backingField?.let { true } ?:
+                // Analyze inheritance.
+                if (isFakeOverride)
+                    resolveFakeOverride()?.isWithoutSideEffects
+                else false
+
+            return withBackingFiled ?: false
+        }
+
+    private fun getSymbolsInfo(expression: IrExpression): SymbolsInfo? {
+        return when (expression) {
+            is IrGetValue -> {
+                when (val declaration = expression.symbol.owner) {
+                    is IrVariable -> {
+                        if (declaration.isVar) return null
+                        val initializerSymbol = declaration.initializer?.let { getSymbolsInfo(it) }
+                        initializerSymbol ?: SymbolsInfo(expression.symbol, mutableListOf())
+                    }
+                    is IrValueParameter ->
+                        if (declaration.origin == IrDeclarationOrigin.INSTANCE_RECEIVER)
+                            SymbolsInfo(expression.symbol, mutableListOf())
+                        else null
+                    else -> null
+                }
+            }
+            is IrCall -> {
+                val propertySymbol = expression.symbol.owner.correspondingPropertySymbol
+
+                if (propertySymbol == null || !propertySymbol.owner.isWithoutSideEffects)
+                    return null
+
+                val symbolsInfo = propertySymbol.owner.backingField?.initializer?.expression?.let { getSymbolsInfo(it) }
+                        ?: SymbolsInfo(propertySymbol, mutableListOf())
+
+                val symbolsFromDispatchReceiver = expression.dispatchReceiver?.let { getSymbolsInfo(it) ?: return null }
+                        ?: SymbolsInfo(null, mutableListOf())
+
+                SymbolsInfo(symbolsInfo.symbol, symbolsFromDispatchReceiver.receiversList.apply {
+                    add(symbolsFromDispatchReceiver.symbol)
+                    addAll(symbolsInfo.receiversList.filterNot { symbol ->
+                        with(symbol?.owner as? IrDeclarationWithName) {
+                            this?.let { it.origin == IrDeclarationOrigin.INSTANCE_RECEIVER && it.name.asString() == "<this>" } ?: false
+                        }
+                    })
+                })
+            }
+            is IrGetObjectValue -> {
+                SymbolsInfo(expression.symbol, mutableListOf())
+            }
+            else -> null
+        }
+    }
+
     private fun checkLastElement(last: IrExpression, loopHeader: ProgressionLoopHeader): BoundsCheckAnalysisResult =
             checkIrCallCondition(last) { call ->
                 if (call.isGetSizeCall() && !loopHeader.headerInfo.isLastInclusive) {
-                    BoundsCheckAnalysisResult(true, (call.dispatchReceiver as? IrGetValue)?.symbol)
+                    BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { getSymbolsInfo(it) })
                 } else {
                     lessThanSize(call)
                 }
@@ -194,7 +276,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                                         // `isLastInclusive` for current case is set to true.
                                         // This case isn't fully optimized in ForLoopsLowering.
                                         if (call.isGetSizeCall())
-                                            BoundsCheckAnalysisResult(true, (call.dispatchReceiver as? IrGetValue)?.symbol)
+                                            BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { getSymbolsInfo(it) } )
                                         else
                                             lessThanSize(call)
                                     }
@@ -207,7 +289,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                 when (loopHeader.nestedLoopHeader) {
                     is IndexedGetLoopHeader -> {
                         analysisResult = BoundsCheckAnalysisResult(true,
-                                ((loopHeader.loopInitStatements[0] as? IrVariable)?.initializer as? IrGetValue)?.symbol)
+                                (loopHeader.loopInitStatements[0] as? IrVariable)?.initializer?.let { getSymbolsInfo(it) })
                     }
                     is ProgressionLoopHeader -> analysisResult = analyzeLoopHeader(loopHeader.nestedLoopHeader)
                 }
@@ -241,8 +323,8 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
         require(newExpression is IrCall)
         if (expression.symbol.owner.name != OperatorNameConventions.SET && expression.symbol.owner.name != OperatorNameConventions.GET)
             return newExpression
-        if (expression.dispatchReceiver?.type?.isBasicArray() != true ||
-                (expression.dispatchReceiver as? IrGetValue)?.symbol != analysisResult.arrayInLoop)
+        if (expression.dispatchReceiver == null || expression.dispatchReceiver?.type?.isBasicArray() != true ||
+                getSymbolsInfo(expression.dispatchReceiver!!)?.intersects(analysisResult.arraySymbolsInfo!!) != true)
             return newExpression
         // Analyze arguments of set/get operator.
         val index = newExpression.getValueArgument(0)!!
