@@ -173,20 +173,27 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                 if (propertySymbol == null || !propertySymbol.owner.isWithoutSideEffects)
                     return null
 
+                // Find property that wasn't initialized with another property accessor.
                 val symbolsInfo = propertySymbol.owner.backingField?.initializer?.expression?.let { getSymbolsInfo(it) }
                         ?: SymbolsInfo(propertySymbol, mutableListOf())
 
+                // Get all list of dispatch receivers used in expression.
                 val symbolsFromDispatchReceiver = expression.dispatchReceiver?.let { getSymbolsInfo(it) ?: return null }
                         ?: SymbolsInfo(null, mutableListOf())
 
-                SymbolsInfo(symbolsInfo.symbol, symbolsFromDispatchReceiver.receiversList.apply {
-                    add(symbolsFromDispatchReceiver.symbol)
-                    addAll(symbolsInfo.receiversList.filterNot { symbol ->
-                        with(symbol?.owner as? IrDeclarationWithName) {
-                            this?.let { it.origin == IrDeclarationOrigin.INSTANCE_RECEIVER && it.name.asString() == "<this>" } ?: false
+                SymbolsInfo(
+                        symbolsInfo.symbol,
+                        symbolsFromDispatchReceiver.receiversList.apply {
+                            add(symbolsFromDispatchReceiver.symbol)
+                            addAll(symbolsInfo.receiversList.filterNot { symbol ->
+                                // Filter `<this>` objet from dispatch receivers list.
+                                with(symbol?.owner as? IrDeclarationWithName) {
+                                    this?.let { it.origin == IrDeclarationOrigin.INSTANCE_RECEIVER && it.name.asString() == "<this>" }
+                                            ?: false
+                                }
+                            })
                         }
-                    })
-                })
+                )
             }
             is IrGetObjectValue -> {
                 SymbolsInfo(expression.symbol, mutableListOf())
