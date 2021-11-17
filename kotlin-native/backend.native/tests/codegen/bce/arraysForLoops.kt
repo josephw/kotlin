@@ -562,3 +562,39 @@ class Child : Base() {
         }
     }
 }
+
+val array: Array<Int> = arrayOf(1)
+    get() = if (needSmallArray) field else arrayOf(1, 2, 3)
+
+@Test fun customeGetter() {
+    val a = array
+    needSmallArray = false
+    assertFailsWith<ArrayIndexOutOfBoundsException> {
+        for (index in 0 until array.size) {
+            a[index] = 6
+        }
+    }
+}
+
+class First {
+    val array = arrayOf(1, 2, 3)
+}
+
+class Second{
+    val first = First()
+}
+
+class Third {
+    val second = Second()
+}
+
+fun differentObjects() {
+    val a = Third()
+    val b = Third()
+
+    assertFailsWith<ArrayIndexOutOfBoundsException> {
+        for (i in 0..a.second.first.array.size-1) {
+            b.second.first.array[i] = 6
+        }
+    }
+}

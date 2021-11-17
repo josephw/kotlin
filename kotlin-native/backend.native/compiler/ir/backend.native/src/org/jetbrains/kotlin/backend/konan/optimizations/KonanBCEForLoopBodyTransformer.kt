@@ -19,24 +19,12 @@ import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 import org.jetbrains.kotlin.util.OperatorNameConventions
 
-internal class SymbolsInfo(val symbol: IrSymbol?, val receiversList: MutableList<IrSymbol?>) {
-    fun intersects(other: SymbolsInfo): Boolean {
-        if (symbol != other.symbol)
-            return false
-        val receiversSize = minOf(receiversList.size, other.receiversList.size)
-
-        val zippedReceivers = receiversList.takeLast(receiversSize).zip(other.receiversList.takeLast(receiversSize)).reversed()
-
-        zippedReceivers.forEach {
-            if (it.first != it.second)
-                return false
-        }
-        return true
-    }
-}
+// Contains information about base symbol initialized with some expression that isn't just reference to another property or variable
+// and the base receiver (first one in chain) that is used in expression.
+internal data class ExpressionBaseUnreferencingSymbols(val symbol: IrSymbol?, val receiver: IrSymbol?)
 
 // Class contains information about analyzed loop.
-internal class BoundsCheckAnalysisResult(val boundsAreSafe: Boolean, val arraySymbolsInfo: SymbolsInfo?)
+internal class BoundsCheckAnalysisResult(val boundsAreSafe: Boolean, val arrayExpressionBaseUnreferencingSymbols: ExpressionBaseUnreferencingSymbols?)
 // TODO: support `forEachIndexed`. Function is inlined and index is separate variable which isn't connected with loop induction variable.
 /**
  * Transformer for loops bodies replacing get/set operators on analogs without bounds check where it's possible.
@@ -56,7 +44,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
         loopHeader = forLoopHeader
         loopVariableComponents = loopComponents
         analysisResult = analyzeLoopHeader(loopHeader)
-        if (analysisResult.boundsAreSafe && analysisResult.arraySymbolsInfo != null)
+        if (analysisResult.boundsAreSafe && analysisResult.arrayExpressionBaseUnreferencingSymbols != null)
             loopBody.transformChildrenVoid(this)
     }
 
@@ -110,7 +98,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
         }
         return if (boundsAreSafe)
             BoundsCheckAnalysisResult(boundsAreSafe,
-                    (functionCall.dispatchReceiver as? IrCall)?.dispatchReceiver?.let { getSymbolsInfo(it) })
+                    (functionCall.dispatchReceiver as? IrCall)?.dispatchReceiver?.let { findExpressionBaseUnreferencingSymbols(it) })
         else BoundsCheckAnalysisResult(boundsAreSafe, null)
     }
 
@@ -128,7 +116,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                 is IrCall -> {
                     expression.symbol.owner.correspondingPropertySymbol?.let {
                         // Case of property accessor.
-                        (getSymbolsInfo(expression)?.symbol?.owner as? IrProperty)?.backingField?.initializer?.expression?.let {
+                        (findExpressionBaseUnreferencingSymbols(expression)?.symbol?.owner as? IrProperty)?.backingField?.initializer?.expression?.let {
                             checkIrCallCondition(it, condition)
                         }
                     } ?: condition(expression)
@@ -137,66 +125,60 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                 else -> BoundsCheckAnalysisResult(false, null)
             }
 
-    private val IrProperty.isWithoutSideEffects: Boolean
-        get()  {
+    private val IrProperty.canChangeValue: Boolean
+        get() {
             if (isVar || isDelegated)
-                return false
+                return true
 
-            val withBackingFiled = backingField?.let { true } ?:
+            val overrideBackingField = backingField?.let {
+                getter != null && getter?.origin != IrDeclarationOrigin.DEFAULT_PROPERTY_ACCESSOR
+            } ?:
                 // Analyze inheritance.
                 if (isFakeOverride)
-                    resolveFakeOverride()?.isWithoutSideEffects
-                else false
+                    resolveFakeOverride()?.canChangeValue
+                else true
 
-            return withBackingFiled ?: false
+
+            return overrideBackingField ?: true
         }
 
-    private fun getSymbolsInfo(expression: IrExpression): SymbolsInfo? {
+    // Find base symbol with value that isn't just reference to another variable or property
+    // and the main(first) dispatch receiver in the chain.
+    private fun findExpressionBaseUnreferencingSymbols(expression: IrExpression): ExpressionBaseUnreferencingSymbols? {
         return when (expression) {
             is IrGetValue -> {
                 when (val declaration = expression.symbol.owner) {
                     is IrVariable -> {
                         if (declaration.isVar) return null
-                        val initializerSymbol = declaration.initializer?.let { getSymbolsInfo(it) }
-                        initializerSymbol ?: SymbolsInfo(expression.symbol, mutableListOf())
+                        val initializerSymbol = declaration.initializer?.let { findExpressionBaseUnreferencingSymbols(it) }
+                        initializerSymbol ?: ExpressionBaseUnreferencingSymbols(expression.symbol, null)
                     }
-                    is IrValueParameter ->
-                        if (declaration.origin == IrDeclarationOrigin.INSTANCE_RECEIVER)
-                            SymbolsInfo(expression.symbol, mutableListOf())
-                        else null
+                    is IrValueParameter -> ExpressionBaseUnreferencingSymbols(expression.symbol, null)
                     else -> null
                 }
             }
             is IrCall -> {
                 val propertySymbol = expression.symbol.owner.correspondingPropertySymbol
 
-                if (propertySymbol == null || !propertySymbol.owner.isWithoutSideEffects)
+                if (propertySymbol == null || propertySymbol.owner.canChangeValue)
                     return null
 
                 // Find property that wasn't initialized with another property accessor.
-                val symbolsInfo = propertySymbol.owner.backingField?.initializer?.expression?.let { getSymbolsInfo(it) }
-                        ?: SymbolsInfo(propertySymbol, mutableListOf())
+                val expressionBaseUnreferencingSymbols = propertySymbol.owner.backingField?.initializer?.expression?.let { findExpressionBaseUnreferencingSymbols(it) }
+                        ?: ExpressionBaseUnreferencingSymbols(propertySymbol, null)
 
                 // Get all list of dispatch receivers used in expression.
-                val symbolsFromDispatchReceiver = expression.dispatchReceiver?.let { getSymbolsInfo(it) ?: return null }
-                        ?: SymbolsInfo(null, mutableListOf())
+                val symbolsFromDispatchReceiver = expression.dispatchReceiver?.let { findExpressionBaseUnreferencingSymbols(it) ?: return null }
 
-                SymbolsInfo(
-                        symbolsInfo.symbol,
-                        symbolsFromDispatchReceiver.receiversList.apply {
-                            add(symbolsFromDispatchReceiver.symbol)
-                            addAll(symbolsInfo.receiversList.filterNot { symbol ->
-                                // Filter `<this>` objet from dispatch receivers list.
-                                with(symbol?.owner as? IrDeclarationWithName) {
-                                    this?.let { it.origin == IrDeclarationOrigin.INSTANCE_RECEIVER && it.name.asString() == "<this>" }
-                                            ?: false
-                                }
-                            })
+                ExpressionBaseUnreferencingSymbols(
+                        expressionBaseUnreferencingSymbols.symbol,
+                        symbolsFromDispatchReceiver?.let {
+                            it.receiver ?: it.symbol
                         }
                 )
             }
             is IrGetObjectValue -> {
-                SymbolsInfo(expression.symbol, mutableListOf())
+                ExpressionBaseUnreferencingSymbols(expression.symbol, null)
             }
             else -> null
         }
@@ -205,7 +187,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
     private fun checkLastElement(last: IrExpression, loopHeader: ProgressionLoopHeader): BoundsCheckAnalysisResult =
             checkIrCallCondition(last) { call ->
                 if (call.isGetSizeCall() && !loopHeader.headerInfo.isLastInclusive) {
-                    BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { getSymbolsInfo(it) })
+                    BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { findExpressionBaseUnreferencingSymbols(it) })
                 } else {
                     lessThanSize(call)
                 }
@@ -283,7 +265,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                                         // `isLastInclusive` for current case is set to true.
                                         // This case isn't fully optimized in ForLoopsLowering.
                                         if (call.isGetSizeCall())
-                                            BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { getSymbolsInfo(it) } )
+                                            BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { findExpressionBaseUnreferencingSymbols(it) } )
                                         else
                                             lessThanSize(call)
                                     }
@@ -296,7 +278,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                 when (loopHeader.nestedLoopHeader) {
                     is IndexedGetLoopHeader -> {
                         analysisResult = BoundsCheckAnalysisResult(true,
-                                (loopHeader.loopInitStatements[0] as? IrVariable)?.initializer?.let { getSymbolsInfo(it) })
+                                (loopHeader.loopInitStatements[0] as? IrVariable)?.initializer?.let { findExpressionBaseUnreferencingSymbols(it) })
                     }
                     is ProgressionLoopHeader -> analysisResult = analyzeLoopHeader(loopHeader.nestedLoopHeader)
                 }
@@ -331,7 +313,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
         if (expression.symbol.owner.name != OperatorNameConventions.SET && expression.symbol.owner.name != OperatorNameConventions.GET)
             return newExpression
         if (expression.dispatchReceiver == null || expression.dispatchReceiver?.type?.isBasicArray() != true ||
-                getSymbolsInfo(expression.dispatchReceiver!!)?.intersects(analysisResult.arraySymbolsInfo!!) != true)
+                findExpressionBaseUnreferencingSymbols(expression.dispatchReceiver!!)?.equals(analysisResult.arrayExpressionBaseUnreferencingSymbols!!) != true)
             return newExpression
         // Analyze arguments of set/get operator.
         val index = newExpression.getValueArgument(0)!!
