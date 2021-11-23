@@ -21,7 +21,7 @@ import org.jetbrains.kotlin.util.OperatorNameConventions
 
 // Contains information about base symbol initialized with some expression that isn't just reference to another property or variable
 // and the base receiver (first one in chain) that is used in expression.
-internal data class ExpressionBaseUnreferencingSymbols(val symbol: IrSymbol?, val receiver: IrSymbol?)
+internal data class ExpressionBaseUnreferencingSymbols(val symbol: IrSymbol, val receiver: IrSymbol?)
 
 // Class contains information about analyzed loop.
 internal class BoundsCheckAnalysisResult(val boundsAreSafe: Boolean, val arrayExpressionBaseUnreferencingSymbols: ExpressionBaseUnreferencingSymbols?)
@@ -96,10 +96,11 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
             }
             else -> false
         }
-        return if (boundsAreSafe)
-            BoundsCheckAnalysisResult(boundsAreSafe,
-                    (functionCall.dispatchReceiver as? IrCall)?.dispatchReceiver?.let { findExpressionBaseUnreferencingSymbols(it) })
-        else BoundsCheckAnalysisResult(boundsAreSafe, null)
+        return BoundsCheckAnalysisResult(boundsAreSafe,
+                (functionCall.dispatchReceiver as? IrCall)?.dispatchReceiver?.takeIf(boundsAreSafe)?.let {
+                    findExpressionBaseUnreferencingSymbols(it)
+                }
+        )
     }
 
     private inline fun checkIrGetValue(value: IrGetValue, condition: (IrExpression) -> BoundsCheckAnalysisResult): BoundsCheckAnalysisResult {
@@ -143,7 +144,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
         }
 
     // Find base symbol with value that isn't just reference to another variable or property
-    // and the main(first) dispatch receiver in the chain.
+    // and the main(first) dispatch receiver in the chain. Top-level properties accessors and local variables/parameters have null receivers.
     private fun findExpressionBaseUnreferencingSymbols(expression: IrExpression): ExpressionBaseUnreferencingSymbols? {
         return when (expression) {
             is IrGetValue -> {
