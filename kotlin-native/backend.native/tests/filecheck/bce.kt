@@ -248,24 +248,6 @@ fun childClassWithFakeOverride() {
 }
 // CHECK-LABEL: {{^}}epilogue:
 
-class Chain(){
-    val array = Array(10) { 100 }
-    val a = array
-    val b = a
-    val c = b
-}
-
-// CHECK-LABEL: define void @"kfun:#chainedProperties(){}"()
-fun chainedProperties() {
-    val chain = Chain()
-    // CHECK: {{^}}do_while_loop{{.*}}:
-    for (i in 0 until chain.array.size) {
-        // CHECK: {{call|invoke}} void @Kotlin_Array_set_without_BoundCheck
-        chain.c[i] = 6
-    }
-}
-// CHECK-LABEL: {{^}}epilogue:
-
 class First {
     val child = Child()
 }
@@ -311,6 +293,5 @@ fun main() {
     topLevelObject()
     topLevelProperty()
     childClassWithFakeOverride()
-    chainedProperties()
     chainedReceivers()
 }

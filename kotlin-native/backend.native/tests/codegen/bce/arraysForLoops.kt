@@ -576,25 +576,47 @@ val array: Array<Int> = arrayOf(1)
     }
 }
 
-class First {
-    val array = arrayOf(1, 2, 3)
+class First(initArray: Array<Int>) {
+    val array = initArray
 }
 
-class Second{
-    val first = First()
+class Second(initArray: Array<Int>){
+    val first = First(initArray)
 }
 
-class Third {
-    val second = Second()
+class Third(initArray: Array<Int>) {
+    val second = Second(initArray)
 }
 
-fun differentObjects() {
-    val a = Third()
-    val b = Third()
+@Test fun differentObjects() {
+    val a = Third(arrayOf(1, 2, 3, 4, 5))
+    val b = Third(arrayOf(1, 2))
 
     assertFailsWith<ArrayIndexOutOfBoundsException> {
         for (i in 0..a.second.first.array.size-1) {
             b.second.first.array[i] = 6
+        }
+    }
+}
+
+class Foo(size: Int) {
+    val array = IntArray(size)
+}
+
+class Bar {
+    val smallFoo = Foo(1)
+    val largeFoo = Foo(10)
+
+    val smallArray = smallFoo.array
+    val largeArray = largeFoo.array
+}
+
+@Test fun differentArrays() {
+    val bar = Bar()
+
+    assertFailsWith<ArrayIndexOutOfBoundsException> {
+        for (index in 0 until bar.largeArray.size) {
+            bar.smallArray[index] = 6
         }
     }
 }

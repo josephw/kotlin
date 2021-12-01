@@ -11,7 +11,10 @@ import org.jetbrains.kotlin.backend.konan.ir.KonanNameConventions
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
+import org.jetbrains.kotlin.ir.symbols.IrPropertySymbol
+import org.jetbrains.kotlin.ir.symbols.IrClassSymbol
 import org.jetbrains.kotlin.ir.symbols.IrSymbol
+import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.getClass
 import org.jetbrains.kotlin.ir.types.isArray
@@ -19,12 +22,19 @@ import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 import org.jetbrains.kotlin.util.OperatorNameConventions
 
-// Contains information about base symbol initialized with some expression that isn't just reference to another property or variable
-// and the base receiver (first one in chain) that is used in expression.
-internal data class ExpressionBaseUnreferencingSymbols(val symbol: IrSymbol, val receiver: IrSymbol?)
+// Base class describing value of expression.
+sealed class ValueDescription
+
+// Contains information about base variable symbol that isn't just reference to another variable.
+data class LocalValueDescription(val variableSymbol: IrValueSymbol) : ValueDescription()
+
+// Contains information about property symbol and receiver's value description.
+data class PropertyValueDescription(val receiver: ValueDescription?, val propertySymbol: IrPropertySymbol) : ValueDescription()
+
+data class ObjectValueDescription(val classSymbol: IrClassSymbol) : ValueDescription()
 
 // Class contains information about analyzed loop.
-internal class BoundsCheckAnalysisResult(val boundsAreSafe: Boolean, val arrayExpressionBaseUnreferencingSymbols: ExpressionBaseUnreferencingSymbols?)
+internal class BoundsCheckAnalysisResult(val boundsAreSafe: Boolean, val arrayInLoop: ValueDescription?)
 // TODO: support `forEachIndexed`. Function is inlined and index is separate variable which isn't connected with loop induction variable.
 /**
  * Transformer for loops bodies replacing get/set operators on analogs without bounds check where it's possible.
@@ -44,7 +54,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
         loopHeader = forLoopHeader
         loopVariableComponents = loopComponents
         analysisResult = analyzeLoopHeader(loopHeader)
-        if (analysisResult.boundsAreSafe && analysisResult.arrayExpressionBaseUnreferencingSymbols != null)
+        if (analysisResult.boundsAreSafe && analysisResult.arrayInLoop != null)
             loopBody.transformChildrenVoid(this)
     }
 
@@ -98,7 +108,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
         }
         return BoundsCheckAnalysisResult(boundsAreSafe,
                 (functionCall.dispatchReceiver as? IrCall)?.dispatchReceiver?.takeIf{ boundsAreSafe }?.let {
-                    findExpressionBaseUnreferencingSymbols(it)
+                    findExpressionValueDescription(it)
                 }
         )
     }
@@ -117,7 +127,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                 is IrCall -> {
                     expression.symbol.owner.correspondingPropertySymbol?.let {
                         // Case of property accessor.
-                        (findExpressionBaseUnreferencingSymbols(expression)?.symbol?.owner as? IrProperty)?.backingField?.initializer?.expression?.let {
+                        (findExpressionValueDescription(expression) as? PropertyValueDescription)?.propertySymbol?.owner?.backingField?.initializer?.expression?.let {
                             checkIrCallCondition(it, condition)
                         }
                     } ?: condition(expression)
@@ -145,16 +155,16 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
 
     // Find base symbol with value that isn't just reference to another variable or property
     // and the main(first) dispatch receiver in the chain. Top-level properties accessors and local variables/parameters have null receivers.
-    private fun findExpressionBaseUnreferencingSymbols(expression: IrExpression): ExpressionBaseUnreferencingSymbols? {
+    private fun findExpressionValueDescription(expression: IrExpression): ValueDescription? {
         return when (expression) {
             is IrGetValue -> {
                 when (val declaration = expression.symbol.owner) {
                     is IrVariable -> {
                         if (declaration.isVar) return null
-                        val initializerSymbol = declaration.initializer?.let { findExpressionBaseUnreferencingSymbols(it) }
-                        initializerSymbol ?: ExpressionBaseUnreferencingSymbols(expression.symbol, null)
+                        val initializerSymbol = declaration.initializer?.let { findExpressionValueDescription(it) }
+                        initializerSymbol ?: LocalValueDescription(expression.symbol)
                     }
-                    is IrValueParameter -> ExpressionBaseUnreferencingSymbols(expression.symbol, null)
+                    is IrValueParameter -> LocalValueDescription(expression.symbol)
                     else -> null
                 }
             }
@@ -164,22 +174,13 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                 if (propertySymbol == null || propertySymbol.owner.canChangeValue)
                     return null
 
-                // Find property that wasn't initialized with another property accessor.
-                val expressionBaseUnreferencingSymbols = propertySymbol.owner.backingField?.initializer?.expression?.let { findExpressionBaseUnreferencingSymbols(it) }
-                        ?: ExpressionBaseUnreferencingSymbols(propertySymbol, null)
-
                 // Get all list of dispatch receivers used in expression.
-                val symbolsFromDispatchReceiver = expression.dispatchReceiver?.let { findExpressionBaseUnreferencingSymbols(it) ?: return null }
+                val valueDescriptionFromDispatchReceiver = expression.dispatchReceiver?.let { findExpressionValueDescription(it) ?: return null }
 
-                ExpressionBaseUnreferencingSymbols(
-                        expressionBaseUnreferencingSymbols.symbol,
-                        symbolsFromDispatchReceiver?.let {
-                            it.receiver ?: it.symbol
-                        }
-                )
+                PropertyValueDescription(valueDescriptionFromDispatchReceiver, propertySymbol)
             }
             is IrGetObjectValue -> {
-                ExpressionBaseUnreferencingSymbols(expression.symbol, null)
+                ObjectValueDescription(expression.symbol)
             }
             else -> null
         }
@@ -188,7 +189,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
     private fun checkLastElement(last: IrExpression, loopHeader: ProgressionLoopHeader): BoundsCheckAnalysisResult =
             checkIrCallCondition(last) { call ->
                 if (call.isGetSizeCall() && !loopHeader.headerInfo.isLastInclusive) {
-                    BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { findExpressionBaseUnreferencingSymbols(it) })
+                    BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { findExpressionValueDescription(it) })
                 } else {
                     lessThanSize(call)
                 }
@@ -266,7 +267,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                                         // `isLastInclusive` for current case is set to true.
                                         // This case isn't fully optimized in ForLoopsLowering.
                                         if (call.isGetSizeCall())
-                                            BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { findExpressionBaseUnreferencingSymbols(it) } )
+                                            BoundsCheckAnalysisResult(true, call.dispatchReceiver?.let { findExpressionValueDescription(it) } )
                                         else
                                             lessThanSize(call)
                                     }
@@ -279,7 +280,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
                 when (loopHeader.nestedLoopHeader) {
                     is IndexedGetLoopHeader -> {
                         analysisResult = BoundsCheckAnalysisResult(true,
-                                (loopHeader.loopInitStatements[0] as? IrVariable)?.initializer?.let { findExpressionBaseUnreferencingSymbols(it) })
+                                (loopHeader.loopInitStatements[0] as? IrVariable)?.initializer?.let { findExpressionValueDescription(it) })
                     }
                     is ProgressionLoopHeader -> analysisResult = analyzeLoopHeader(loopHeader.nestedLoopHeader)
                 }
@@ -314,7 +315,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
         if (expression.symbol.owner.name != OperatorNameConventions.SET && expression.symbol.owner.name != OperatorNameConventions.GET)
             return newExpression
         if (expression.dispatchReceiver == null || expression.dispatchReceiver?.type?.isBasicArray() != true ||
-                findExpressionBaseUnreferencingSymbols(expression.dispatchReceiver!!)?.equals(analysisResult.arrayExpressionBaseUnreferencingSymbols!!) != true)
+                findExpressionValueDescription(expression.dispatchReceiver!!)?.equals(analysisResult.arrayInLoop!!) != true)
             return newExpression
         // Analyze arguments of set/get operator.
         val index = newExpression.getValueArgument(0)!!
