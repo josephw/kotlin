@@ -51,7 +51,7 @@ class TypeAttributes private constructor(attributes: List<TypeAttribute<*>>) : A
             }
         }
 
-        val Empty: TypeAttributes = TypeAttributes(listOf(AnnotationsTypeAttribute(Annotations.EMPTY)))
+        val Empty: TypeAttributes = TypeAttributes(emptyList())
 
         fun create(attributes: List<TypeAttribute<*>>): TypeAttributes {
             return if (attributes.isEmpty()) {
@@ -69,6 +69,8 @@ class TypeAttributes private constructor(attributes: List<TypeAttribute<*>>) : A
             registerComponent(attribute.key, attribute)
         }
     }
+
+    val size: Int get() = arrayMap.size
 
     fun union(other: TypeAttributes): TypeAttributes {
         return perform(other) { this.union(it) }
@@ -102,7 +104,7 @@ class TypeAttributes private constructor(attributes: List<TypeAttribute<*>>) : A
         if (isEmpty()) return this
         val attributes = arrayMap.filter { it != attribute }
         if (attributes.size == arrayMap.size) return this
-        return create(attributes)
+        return TypeAttributes(attributes)
     }
 
     private inline fun perform(other: TypeAttributes, op: TypeAttribute<*>.(TypeAttribute<*>?) -> TypeAttribute<*>?): TypeAttributes {
@@ -119,6 +121,7 @@ class TypeAttributes private constructor(attributes: List<TypeAttribute<*>>) : A
 
     override val typeRegistry: TypeRegistry<TypeAttribute<*>, TypeAttribute<*>>
         get() = Companion
+
 }
 
 fun TypeAttributes.toDefaultAnnotations(): Annotations =
@@ -127,6 +130,9 @@ fun TypeAttributes.toDefaultAnnotations(): Annotations =
 fun Annotations.toDefaultAttributes(): TypeAttributes = DefaultTypeAttributeTranslator.toAttributes(this)
 
 fun TypeAttributes.replaceAnnotations(newAnnotations: Annotations): TypeAttributes {
-    val withoutCustom = (annotationsAttribute?.let { this.remove(it) } ?: this)
-    return withoutCustom.add(newAnnotations.toDefaultAttributes())
+    if (annotations === newAnnotations) return this
+    val withoutAnnotations = annotationsAttribute?.let { this.remove(it) } ?: this
+    // Check if iterator hasNext to handle FilteredAnnotations.isEmpty() with OldInference
+    if (!newAnnotations.iterator().hasNext() && newAnnotations.isEmpty()) return TypeAttributes.Empty
+    return withoutAnnotations.plus(AnnotationsTypeAttribute(newAnnotations))
 }

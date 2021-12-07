@@ -120,7 +120,9 @@ class TypeAliasExpander(
             }
         }
 
-        checkRepeatedAnnotations(underlyingType.annotations, argumentType.annotations)
+        val argAnnotations = argumentType.annotations
+        val underAnnotations = underlyingType.annotations
+        checkRepeatedAnnotations(underAnnotations, argAnnotations)
 
         val substitutedType =
             if (argumentType is DynamicType)
@@ -135,12 +137,12 @@ class TypeAliasExpander(
         replaceAttributes(createdCombinedAttributes(newAttributes))
 
     private fun SimpleType.combineAttributes(newAttributes: TypeAttributes): SimpleType =
-        if (isError) this else replaceAttributes(newAttributes = createdCombinedAttributes(newAttributes))
+        if (isError) this else replace(newAttributes = createdCombinedAttributes(newAttributes))
 
     private fun KotlinType.createdCombinedAttributes(newAttributes: TypeAttributes): TypeAttributes {
         if (isError) return attributes
 
-        return newAttributes.add(attributes)
+        return composeAnnotations(newAttributes.annotations, annotations).toDefaultAttributes()
     }
 
     private fun checkRepeatedAnnotations(existingAnnotations: Annotations, newAnnotations: Annotations) {
