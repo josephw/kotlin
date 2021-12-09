@@ -59,8 +59,9 @@ class FirTypeIntersectionScope private constructor(
         }
 
         for ((chosenSymbol, overriddenMembers) in callablesWithOverridden) {
-            overriddenSymbols[chosenSymbol] = overriddenMembers
-            processor(chosenSymbol)
+            val symbol = chosenSymbol.symbol
+            overriddenSymbols[symbol] = overriddenMembers
+            processor(symbol)
         }
     }
 

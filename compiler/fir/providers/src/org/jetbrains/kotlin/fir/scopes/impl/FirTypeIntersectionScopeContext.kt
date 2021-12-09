@@ -16,11 +16,15 @@ import org.jetbrains.kotlin.fir.declarations.utils.modality
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
 import org.jetbrains.kotlin.fir.resolve.substitution.ConeSubstitutor
 import org.jetbrains.kotlin.fir.scopes.*
+import org.jetbrains.kotlin.fir.scopes.impl.FirIntersectionOverrideStorage.ContextForIntersectionOverrideConstruction
+import org.jetbrains.kotlin.fir.scopes.impl.FirTypeIntersectionScopeContext.ResultOfIntersection.ChosenSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.AbstractTypeChecker
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.contract
 
 class FirTypeIntersectionScopeContext(
     val session: FirSession,
@@ -36,13 +40,36 @@ class FirTypeIntersectionScopeContext(
     val intersectionOverrides = session.intersectionOverrideStorage.cacheByScope.getValue(dispatchReceiverType).intersectionOverrides
 
     data class ResultOfIntersection<D : FirCallableSymbol<*>>(
-        val chosenSymbol: D,
-        val overriddenMembers: List<MemberWithBaseScope<D>>
+        val chosenSymbol: ChosenSymbol<D>,
+        val overriddenMembers: List<MemberWithBaseScope<D>>,
+        val containingScope: FirTypeScope?
     ) {
         constructor(
             chosenSymbol: D,
-            overriddenMember: MemberWithBaseScope<D>
-        ) : this(chosenSymbol, listOf(overriddenMember))
+            overriddenMember: MemberWithBaseScope<D>,
+        ) : this(ChosenSymbol.RegularSymbol(chosenSymbol), listOf(overriddenMember), overriddenMember.baseScope)
+
+        sealed class ChosenSymbol<D : FirCallableSymbol<*>> {
+            abstract val symbol: D
+
+            class RegularSymbol<D : FirCallableSymbol<*>>(override val symbol: D) : ChosenSymbol<D>()
+
+            class IntersectionOverride<D : FirCallableSymbol<*>>(
+                private val intersectionOverridesCache: FirCache<FirCallableSymbol<*>, MemberWithBaseScope<FirCallableSymbol<*>>, ContextForIntersectionOverrideConstruction<*>>,
+                private val context: ContextForIntersectionOverrideConstruction<D>
+            ) : ChosenSymbol<D>() {
+                override val symbol: D by lazy {
+                    @Suppress("UNCHECKED_CAST")
+                    intersectionOverridesCache.getValue(
+                        context.mostSpecific,
+                        context
+                    ).member as D
+                }
+
+                val baseMembersWithScope: List<MemberWithBaseScope<D>>
+                    get() = context.extractedOverrides
+            }
+        }
     }
 
     @OptIn(PrivateForInline::class)
@@ -110,30 +137,30 @@ class FirTypeIntersectionScopeContext(
             val baseMembersForIntersection = extractedOverrides.calcBaseMembersForIntersectionOverride()
             if (baseMembersForIntersection.size > 1) {
                 val (mostSpecific, scopeForMostSpecific) = selectMostSpecificMember(baseMembersForIntersection)
-                val intersectionOverride = intersectionOverrides.getValue(
+                val intersectionOverrideContext = ContextForIntersectionOverrideConstruction(
                     mostSpecific,
-                    FirIntersectionOverrideStorage.ContextForIntersectionOverrideConstruction(
-                        this,
-                        extractedOverrides,
-                        scopeForMostSpecific
-                    )
+                    this,
+                    extractedOverrides,
+                    scopeForMostSpecific
                 )
-                @Suppress("UNCHECKED_CAST")
-                result += ResultOfIntersection(intersectionOverride.member as D, extractedOverrides)
+                result += ResultOfIntersection(
+                    ChosenSymbol.IntersectionOverride(intersectionOverrides, intersectionOverrideContext),
+                    extractedOverrides,
+                    containingScope = null
+                )
             } else {
-                val mostSpecific = baseMembersForIntersection.single().member
-                result += ResultOfIntersection(mostSpecific, extractedOverrides)
+                val (mostSpecific, containingScope) = baseMembersForIntersection.single()
+                result += ResultOfIntersection(ChosenSymbol.RegularSymbol(mostSpecific), extractedOverrides, containingScope)
             }
         }
 
         if (allMembersWithScope.isNotEmpty()) {
-            val single = allMembersWithScope.single().member
-            result += ResultOfIntersection(single, allMembersWithScope.toList())
+            val (single, containingScope) = allMembersWithScope.single()
+            result += ResultOfIntersection(ChosenSymbol.RegularSymbol(single), allMembersWithScope.toList(), containingScope)
         }
 
         return result
     }
-
 
     fun <D : FirCallableSymbol<*>> createIntersectionOverride(
         extractedOverrides: List<MemberWithBaseScope<D>>,
@@ -511,12 +538,13 @@ class FirIntersectionOverrideStorage(val session: FirSession) : FirSessionCompon
     class CacheForScope(cachesFactory: FirCachesFactory) {
         val intersectionOverrides: FirCache<FirCallableSymbol<*>, MemberWithBaseScope<FirCallableSymbol<*>>, ContextForIntersectionOverrideConstruction<*>> =
             cachesFactory.createCache { mostSpecific, context ->
-                val (intersectionScope, extractedOverrides, scopeForMostSpecific) = context
+                val (_, intersectionScope, extractedOverrides, scopeForMostSpecific) = context
                 intersectionScope.createIntersectionOverride(extractedOverrides, mostSpecific, scopeForMostSpecific)
             }
     }
 
     data class ContextForIntersectionOverrideConstruction<D : FirCallableSymbol<*>>(
+        val mostSpecific: D,
         val intersectionContext: FirTypeIntersectionScopeContext,
         val extractedOverrides: List<MemberWithBaseScope<D>>,
         val scopeForMostSpecific: FirTypeScope
@@ -527,3 +555,11 @@ class FirIntersectionOverrideStorage(val session: FirSession) : FirSessionCompon
 }
 
 private val FirSession.intersectionOverrideStorage: FirIntersectionOverrideStorage by FirSession.sessionComponentAccessor()
+
+@OptIn(ExperimentalContracts::class)
+fun <D : FirCallableSymbol<*>> ChosenSymbol<D>.isIntersectionOverride(): Boolean {
+    contract {
+        returns(true) implies (this@isIntersectionOverride is ChosenSymbol.IntersectionOverride<D>)
+    }
+    return this is ChosenSymbol.IntersectionOverride
+}
