@@ -25,7 +25,7 @@ import org.jetbrains.kotlin.util.OperatorNameConventions
 // Base class describing value of expression.
 sealed class ValueDescription
 
-// Contains information about base variable symbol that isn't just reference to another variable.
+// Contains information about base variable symbol.
 data class LocalValueDescription(val variableSymbol: IrValueSymbol) : ValueDescription()
 
 // Contains information about property symbol and receiver's value description.
@@ -35,6 +35,7 @@ data class ObjectValueDescription(val classSymbol: IrClassSymbol) : ValueDescrip
 
 // Class contains information about analyzed loop.
 internal class BoundsCheckAnalysisResult(val boundsAreSafe: Boolean, val arrayInLoop: ValueDescription?)
+
 // TODO: support `forEachIndexed`. Function is inlined and index is separate variable which isn't connected with loop induction variable.
 /**
  * Transformer for loops bodies replacing get/set operators on analogs without bounds check where it's possible.
@@ -124,14 +125,7 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
 
     private fun checkIrCallCondition(expression: IrExpression, condition: (IrCall) -> BoundsCheckAnalysisResult): BoundsCheckAnalysisResult =
             when (expression) {
-                is IrCall -> {
-                    expression.symbol.owner.correspondingPropertySymbol?.let {
-                        // Case of property accessor.
-                        (findExpressionValueDescription(expression) as? PropertyValueDescription)?.propertySymbol?.owner?.backingField?.initializer?.expression?.let {
-                            checkIrCallCondition(it, condition)
-                        }
-                    } ?: condition(expression)
-                }
+                is IrCall -> condition(expression)
                 is IrGetValue -> checkIrGetValue(expression) { valueInitializer -> checkIrCallCondition(valueInitializer, condition) }
                 else -> BoundsCheckAnalysisResult(false, null)
             }
@@ -153,16 +147,16 @@ class KonanBCEForLoopBodyTransformer : ForLoopBodyTransformer() {
             return overrideBackingField ?: true
         }
 
-    // Find base symbol with value that isn't just reference to another variable or property
-    // and the main(first) dispatch receiver in the chain. Top-level properties accessors and local variables/parameters have null receivers.
+    // Find base symbol with value or property and the main(first) dispatch receiver in the chain.
+    // Top-level properties accessors and local variables/parameters have null receivers.
     private fun findExpressionValueDescription(expression: IrExpression): ValueDescription? {
         return when (expression) {
             is IrGetValue -> {
                 when (val declaration = expression.symbol.owner) {
                     is IrVariable -> {
                         if (declaration.isVar) return null
-                        val initializerSymbol = declaration.initializer?.let { findExpressionValueDescription(it) }
-                        initializerSymbol ?: LocalValueDescription(expression.symbol)
+                        val initializerDescription = declaration.initializer?.let { findExpressionValueDescription(it) }
+                        initializerDescription ?: LocalValueDescription(expression.symbol)
                     }
                     is IrValueParameter -> LocalValueDescription(expression.symbol)
                     else -> null
