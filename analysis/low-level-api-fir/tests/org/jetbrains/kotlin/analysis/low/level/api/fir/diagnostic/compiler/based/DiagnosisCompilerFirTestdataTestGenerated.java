@@ -3459,6 +3459,52 @@ public class DiagnosisCompilerFirTestdataTestGenerated extends AbstractDiagnosis
         }
 
         @Nested
+        @TestMetadata("compiler/fir/analysis-tests/testData/resolve/scopes")
+        @TestDataPath("$PROJECT_ROOT")
+        public class Scopes {
+            @Test
+            public void testAllFilesPresentInScopes() throws Exception {
+                KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/analysis-tests/testData/resolve/scopes"), Pattern.compile("^([^.]+)\\.kt$"), null, true);
+            }
+
+            @Test
+            @TestMetadata("explicitOverrideOfTwoMembers.kt")
+            public void testExplicitOverrideOfTwoMembers() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/scopes/explicitOverrideOfTwoMembers.kt");
+            }
+
+            @Test
+            @TestMetadata("explicitOverrideOfTwoMembers_java.kt")
+            public void testExplicitOverrideOfTwoMembers_java() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/scopes/explicitOverrideOfTwoMembers_java.kt");
+            }
+
+            @Test
+            @TestMetadata("intersectionOverrideOfTwoMembers.kt")
+            public void testIntersectionOverrideOfTwoMembers() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/scopes/intersectionOverrideOfTwoMembers.kt");
+            }
+
+            @Test
+            @TestMetadata("intersectionOverrideOfTwoMembers_java.kt")
+            public void testIntersectionOverrideOfTwoMembers_java() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/scopes/intersectionOverrideOfTwoMembers_java.kt");
+            }
+
+            @Test
+            @TestMetadata("noIntersectionOverrideOfTwoMembers.kt")
+            public void testNoIntersectionOverrideOfTwoMembers() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/scopes/noIntersectionOverrideOfTwoMembers.kt");
+            }
+
+            @Test
+            @TestMetadata("noIntersectionOverrideOfTwoMembers_java.kt")
+            public void testNoIntersectionOverrideOfTwoMembers_java() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/scopes/noIntersectionOverrideOfTwoMembers_java.kt");
+            }
+        }
+
+        @Nested
         @TestMetadata("compiler/fir/analysis-tests/testData/resolve/smartcasts")
         @TestDataPath("$PROJECT_ROOT")
         public class Smartcasts {
