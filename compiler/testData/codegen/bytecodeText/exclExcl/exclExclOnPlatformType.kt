@@ -11,5 +11,7 @@ fun func2() {
 //  ^ no temporary variables created in 'func2'
 // 1 ALOAD
 //  ^ single ALOAD in 'func1' (parameter null check)
+
+// JVM_IR_TEMPLATES
 // 0 checkNotNullExpressionValue
 //  ^ no null check on result of 'get()!!'
