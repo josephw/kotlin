@@ -130,7 +130,7 @@ internal class KonanCliInteropRunner(
         additionalJvmArgs: List<String> = emptyList(),
         konanHome: String = project.konanHome
 ) : KonanCliRunner("cinterop", project, additionalJvmArgs, konanHome) {
-    override val mustRunViaExec get() = false
+    override val mustRunViaExec get() = true//false
 
     override val execEnvironment by lazy {
         val result = mutableMapOf<String, String>()
