@@ -40,6 +40,12 @@ import org.jetbrains.org.objectweb.asm.tree.MethodNode
 class FunctionCodegen(private val irFunction: IrFunction, private val classCodegen: ClassCodegen) {
     private val context = classCodegen.context
 
+    init {
+        if (irFunction.name.asString() == "func2") {
+            println(irFunction.dump())
+        }
+    }
+
     fun generate(
         inlinedInto: ExpressionCodegen? = null,
         reifiedTypeParameters: ReifiedTypeParametersUsages = classCodegen.reifiedTypeParametersUsages

@@ -1032,6 +1032,11 @@ public class KlibTextTestCaseGenerated extends AbstractKlibTextTestCase {
             runTest("compiler/testData/ir/irText/expressions/equality.kt");
         }
 
+        @TestMetadata("exclExclOnPlatformType.kt")
+        public void testExclExclOnPlatformType() throws Exception {
+            runTest("compiler/testData/ir/irText/expressions/exclExclOnPlatformType.kt");
+        }
+
         @TestMetadata("exhaustiveWhenElseBranch.kt")
         public void testExhaustiveWhenElseBranch() throws Exception {
             runTest("compiler/testData/ir/irText/expressions/exhaustiveWhenElseBranch.kt");
