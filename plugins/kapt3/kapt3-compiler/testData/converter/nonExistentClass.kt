@@ -3,6 +3,7 @@
 // NO_VALIDATION
 
 @Suppress("UNRESOLVED_REFERENCE")
+@Suppress("CANNOT_INFER_PARAMETER_TYPE")
 object NonExistentType {
     val a: ABCDEF? = null
     val b: List<ABCDEF>? = null

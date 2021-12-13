@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit
 interface CustomJdkTestLauncher {
     fun doTestWithJdk11(mainClass: Class<*>, arg: String) {
         if (isJava9OrLater()) return
-        KtTestUtil.getJdk11Home().let { doTestCustomJdk(mainClass, arg, it) }
+        doTestCustomJdk(mainClass, arg, KtTestUtil.getJdk11Home())
     }
 
     private fun doTestCustomJdk(mainClass: Class<*>, arg: String, javaHome: File) {
