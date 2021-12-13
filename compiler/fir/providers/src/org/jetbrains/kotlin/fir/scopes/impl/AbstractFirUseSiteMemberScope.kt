@@ -27,7 +27,7 @@ abstract class AbstractFirUseSiteMemberScope(
     private val functions: MutableMap<Name, Collection<FirNamedFunctionSymbol>> = hashMapOf()
 
     private val properties: MutableMap<Name, Collection<FirVariableSymbol<*>>> = hashMapOf()
-    private val directOverriddenFunctions: MutableMap<FirNamedFunctionSymbol, List<ResultOfIntersection<FirNamedFunctionSymbol>>> = hashMapOf()
+    protected val directOverriddenFunctions: MutableMap<FirNamedFunctionSymbol, List<ResultOfIntersection<FirNamedFunctionSymbol>>> = hashMapOf()
     protected val directOverriddenProperties: MutableMap<FirPropertySymbol, List<ResultOfIntersection<FirPropertySymbol>>> = hashMapOf()
 
     private val functionsFromSupertypes: MutableMap<Name, List<ResultOfIntersection<FirNamedFunctionSymbol>>> = mutableMapOf()
@@ -78,7 +78,7 @@ abstract class AbstractFirUseSiteMemberScope(
         }
     }
 
-    private fun getFunctionsFromSupertypesByName(name: Name): List<ResultOfIntersection<FirNamedFunctionSymbol>> {
+    protected fun getFunctionsFromSupertypesByName(name: Name): List<ResultOfIntersection<FirNamedFunctionSymbol>> {
         return functionsFromSupertypes.getOrPut(name) {
             supertypeScopeContext.collectCallables(name, FirScope::processFunctionsByName)
         }

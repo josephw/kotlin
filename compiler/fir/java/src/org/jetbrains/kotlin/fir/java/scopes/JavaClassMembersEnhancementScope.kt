@@ -66,20 +66,22 @@ class JavaClassMembersEnhancementScope(
     }
 
     private fun FirCallableDeclaration.overriddenMembersForEnhancement(name: Name): List<FirCallableDeclaration> {
-        val directlyOverriddensFromScopeFir = overriddenMembers(name)
-        val superTypesScope = useSiteMemberScope.superTypesScope as? FirTypeIntersectionScope ?: return directlyOverriddensFromScopeFir
-
-        val directlyOverriddensFromScope = directlyOverriddensFromScopeFir.map { it.symbol }
-        val result = mutableSetOf<FirCallableSymbol<*>>()
-        for (intersectedOverriddenSymbol in directlyOverriddensFromScope) {
-            val newOverriddens = superTypesScope.getDirectOverriddenSymbols(intersectedOverriddenSymbol).map { it.member }
-            if (newOverriddens.isNotEmpty()) {
-                result += newOverriddens
-            } else {
-                result += intersectedOverriddenSymbol
-            }
-        }
-        return result.map { it.fir }
+        // TODO
+        return overriddenMembers(name)
+//        val directlyOverriddensFromScopeFir = overriddenMembers(name)
+//        val superTypesScope = useSiteMemberScope.superTypesScope as? FirTypeIntersectionScope ?: return directlyOverriddensFromScopeFir
+//
+//        val directlyOverriddensFromScope = directlyOverriddensFromScopeFir.map { it.symbol }
+//        val result = mutableSetOf<FirCallableSymbol<*>>()
+//        for (intersectedOverriddenSymbol in directlyOverriddensFromScope) {
+//            val newOverriddens = superTypesScope.getDirectOverriddenSymbols(intersectedOverriddenSymbol).map { it.member }
+//            if (newOverriddens.isNotEmpty()) {
+//                result += newOverriddens
+//            } else {
+//                result += intersectedOverriddenSymbol
+//            }
+//        }
+//        return result.map { it.fir }
     }
 
     private fun FirCallableDeclaration.overriddenMembers(name: Name): List<FirCallableDeclaration> {

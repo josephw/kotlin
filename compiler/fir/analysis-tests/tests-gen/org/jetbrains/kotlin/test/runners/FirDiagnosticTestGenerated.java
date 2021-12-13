@@ -3502,6 +3502,12 @@ public class FirDiagnosticTestGenerated extends AbstractFirDiagnosticTest {
             public void testNoIntersectionOverrideOfTwoMembers_java() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolve/scopes/noIntersectionOverrideOfTwoMembers_java.kt");
             }
+
+            @Test
+            @TestMetadata("specialFunctionInJava.kt")
+            public void testSpecialFunctionInJava() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/scopes/specialFunctionInJava.kt");
+            }
         }
 
         @Nested

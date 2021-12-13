@@ -90,6 +90,10 @@ class FirTypeIntersectionScopeContext(
         return result
     }
 
+    fun collectFunctions(name: Name): List<ResultOfIntersection<FirNamedFunctionSymbol>> {
+        return collectCallables(name, FirScope::processFunctionsByName)
+    }
+
     @OptIn(PrivateForInline::class)
     inline fun <D : FirCallableSymbol<*>> collectCallables(
         name: Name,

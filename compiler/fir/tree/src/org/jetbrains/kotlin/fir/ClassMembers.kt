@@ -101,6 +101,7 @@ var <D : FirCallableDeclaration>
 
 private object InitialSignatureKey : FirDeclarationDataKey()
 
+// TODO: fix with symbol
 var FirCallableDeclaration.initialSignatureAttr: FirCallableDeclaration? by FirDeclarationDataRegistry.data(InitialSignatureKey)
 
 private object MatchingParameterFunctionTypeKey : FirDeclarationDataKey()

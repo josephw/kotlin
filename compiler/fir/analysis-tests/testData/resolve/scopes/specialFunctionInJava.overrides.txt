@@ -1,0 +1,6 @@
+Some:
+  [Enhancement]: public open fun toInt(): R|kotlin/Int| from Java enhancement scope for /Some [id: 0]
+    [Library]: public abstract fun toInt(): R|kotlin/Int| from Java use site scope of /Some [id: 1]
+  [Library]: public abstract fun toByte(): R|kotlin/Byte| from Java enhancement scope for /Some [id: 0]
+  [Library]: public abstract fun toLong(): R|kotlin/Long| from Java enhancement scope for /Some [id: 0]
+

@@ -1,0 +1,9 @@
+FILE: main.kt
+    public final fun test(some: R|Some|): R|kotlin/Unit| {
+        R|<local>/some|.R|/Some.toInt|()
+        R|<local>/some|.<Unresolved name: intValue>#()
+        R|<local>/some|.R|kotlin/Number.toByte|()
+        R|<local>/some|.<Unresolved name: byteValue>#()
+        R|<local>/some|.R|kotlin/Number.toLong|()
+        R|<local>/some|.<Unresolved name: longValue>#()
+    }

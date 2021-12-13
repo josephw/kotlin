@@ -16,9 +16,13 @@ import org.jetbrains.kotlin.fir.java.declarations.buildJavaMethodCopy
 import org.jetbrains.kotlin.fir.java.declarations.buildJavaValueParameterCopy
 import org.jetbrains.kotlin.fir.java.symbols.FirJavaOverriddenSyntheticPropertySymbol
 import org.jetbrains.kotlin.fir.java.toConeKotlinTypeProbablyFlexible
+import org.jetbrains.kotlin.fir.resolve.defaultType
 import org.jetbrains.kotlin.fir.resolve.toSymbol
 import org.jetbrains.kotlin.fir.scopes.*
 import org.jetbrains.kotlin.fir.scopes.impl.AbstractFirUseSiteMemberScope
+import org.jetbrains.kotlin.fir.scopes.impl.FirTypeIntersectionScopeContext.ResultOfIntersection
+import org.jetbrains.kotlin.fir.scopes.impl.FirTypeIntersectionScopeContext.ResultOfIntersection.ChosenSymbol
+import org.jetbrains.kotlin.fir.scopes.impl.isIntersectionOverride
 import org.jetbrains.kotlin.fir.scopes.jvm.computeJvmDescriptor
 import org.jetbrains.kotlin.fir.scopes.jvm.computeJvmSignature
 import org.jetbrains.kotlin.fir.symbols.impl.*
@@ -35,17 +39,20 @@ import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.types.AbstractTypeChecker
+import org.jetbrains.kotlin.utils.addIfNotNull
 
 class JavaClassUseSiteMemberScope(
     klass: FirJavaClass,
     session: FirSession,
-    superTypesScope: FirTypeScope,
+//    val superTypesScope: FirTypeScope,
+    superTypeScopes: List<FirTypeScope>,
     declaredMemberScope: FirContainingNamesAwareScope
 ) : AbstractFirUseSiteMemberScope(
     klass.classId,
     session,
-    JavaOverrideChecker(session, klass.javaTypeParameterStack, superTypesScope, considerReturnTypeKinds = true),
-    superTypesScope,
+    JavaOverrideChecker(session, klass.javaTypeParameterStack, superTypeScopes, considerReturnTypeKinds = true),
+    superTypeScopes,
+    klass.defaultType(),
     declaredMemberScope
 ) {
     private val typeParameterStack = klass.javaTypeParameterStack
@@ -53,16 +60,6 @@ class JavaClassUseSiteMemberScope(
     private val syntheticPropertyByNameMap = hashMapOf<Name, FirSyntheticPropertySymbol>()
 
     private val canUseSpecialGetters: Boolean by lazy { !klass.hasKotlinSuper(session) }
-
-    private val callableNamesCached by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        declaredMemberScope.getCallableNames() + superTypesScope.getCallableNames()
-    }
-
-    override fun getCallableNames(): Set<Name> = callableNamesCached
-
-    override fun getClassifierNames(): Set<Name> {
-        return declaredMemberScope.getClassifierNames() + superTypesScope.getClassifierNames()
-    }
 
     private fun generateSyntheticPropertySymbol(
         getterSymbol: FirNamedFunctionSymbol,
@@ -102,7 +99,7 @@ class JavaClassUseSiteMemberScope(
         return minOf(a, b)
     }
 
-    override fun doProcessProperties(name: Name): Collection<FirVariableSymbol<*>> {
+    override fun collectProperties(name: Name): Collection<FirVariableSymbol<*>> {
         val fields = mutableSetOf<FirCallableSymbol<*>>()
         val fieldNames = mutableSetOf<Name>()
         val result = mutableSetOf<FirVariableSymbol<*>>()
@@ -115,36 +112,50 @@ class JavaClassUseSiteMemberScope(
             result += variableSymbol
         }
 
-        val fromSupertypes = superTypesScope.getProperties(name)
+        /*
+         * From supertype we can get at most two results:
+         * 1. Set of properties with same name
+         * 2. Field from some java superclass (only one, if class have more than one superclass then we can choose
+         *   just one field because this is incorrect code anyway)
+         */
+        val fromSupertypes = supertypeScopeContext.collectCallables(name, FirScope::processPropertiesByName)
 
-        for (propertyFromSupertype in fromSupertypes) {
-            if (propertyFromSupertype is FirFieldSymbol) {
-                if (propertyFromSupertype.fir.name !in fieldNames) {
-                    result += propertyFromSupertype
-                }
-                continue
-            }
-            if (propertyFromSupertype !is FirPropertySymbol) continue
-            val overrideInClass =
-                propertyFromSupertype.createOverridePropertyIfExists(declaredMemberScope, takeModalityFromGetter = true)
-                    ?: propertyFromSupertype.createOverridePropertyIfExists(superTypesScope, takeModalityFromGetter = false)
-            when {
-                overrideInClass != null -> {
-                    directOverriddenProperties.getOrPut(overrideInClass) { mutableListOf() }.add(propertyFromSupertype)
-                    overrideByBase[propertyFromSupertype] = overrideInClass
-                    result += overrideInClass
-                }
-                else -> result += propertyFromSupertype
+        val (fieldsFromSupertype, propertiesFromSupertypes) = fromSupertypes.partition {
+            it.chosenSymbol is ChosenSymbol.RegularSymbol && it.chosenSymbol.symbol is FirFieldSymbol
+        }
+
+        assert(fieldsFromSupertype.size in 0..1)
+        assert(propertiesFromSupertypes.size in 0..1)
+
+        fieldsFromSupertype.firstOrNull()?.chosenSymbol?.symbol?.let { fieldSymbol ->
+            require(fieldSymbol is FirFieldSymbol)
+            if (fieldSymbol.name !in fieldNames) {
+                result.addIfNotNull(fieldSymbol)
             }
         }
+
+        @Suppress("UNCHECKED_CAST")
+        val overriddenProperty = propertiesFromSupertypes.firstOrNull() as ResultOfIntersection<FirPropertySymbol>? ?: return result
+        val (chosenSymbolFromSupertype, overriddenMembers, _) = overriddenProperty
+
+        val propertyFromSupertype = chosenSymbolFromSupertype.extractSomeSymbolFromSuperType()
+        val overrideInClass =
+            propertyFromSupertype.createOverridePropertyIfExists(declaredMemberScope, takeModalityFromGetter = true)
+                ?: superTypeScopes.firstNotNullOfOrNull {
+                    propertyFromSupertype.createOverridePropertyIfExists(it, takeModalityFromGetter = false)
+                }
+
+        val chosenSymbol = overrideInClass ?: chosenSymbolFromSupertype.symbol
+        directOverriddenProperties[chosenSymbol] = listOf(overriddenProperty)
+        overriddenMembers.forEach { overrideByBase[it.member] = overrideInClass }
+        result += chosenSymbol
         return result
     }
 
-    private fun FirVariableSymbol<*>.createOverridePropertyIfExists(
+    private fun FirPropertySymbol.createOverridePropertyIfExists(
         scope: FirScope,
         takeModalityFromGetter: Boolean
     ): FirPropertySymbol? {
-        if (this !is FirPropertySymbol) return null
         val getterSymbol = this.findGetterOverride(scope) ?: return null
         val setterSymbol =
             if (this.fir.isVar)
@@ -204,8 +215,7 @@ class JavaClassUseSiteMemberScope(
 
     private fun FirPropertySymbol.getBuiltinSpecialPropertyGetterName(): Name? {
         var result: Name? = null
-
-        superTypesScope.processOverriddenPropertiesAndSelf(this) { overridden ->
+        superTypeScopes.processOverriddenPropertiesAndSelf(this) { overridden ->
             val fqName = overridden.fir.containingClass()?.classId?.asSingleFqName()?.child(overridden.fir.name)
 
             BuiltinSpecialProperties.PROPERTY_FQ_NAME_TO_JVM_GETTER_NAME_MAP[fqName]?.let { name ->
@@ -224,8 +234,10 @@ class JavaClassUseSiteMemberScope(
 
         val renamedSpecialBuiltInName = SpecialGenericSignatures.getBuiltinFunctionNamesByJvmName(name)
 
-        if (potentialPropertyNames.isEmpty() && renamedSpecialBuiltInName == null &&
-            !name.sameAsBuiltinMethodWithErasedValueParameters && !name.sameAsRenamedInJvmBuiltin
+        if (potentialPropertyNames.isEmpty() &&
+            renamedSpecialBuiltInName == null &&
+            !name.sameAsBuiltinMethodWithErasedValueParameters &&
+            !name.sameAsRenamedInJvmBuiltin
         ) {
             return super.processFunctionsByName(name, processor)
         }
@@ -233,13 +245,16 @@ class JavaClassUseSiteMemberScope(
         val overriddenProperties = potentialPropertyNames.flatMap(this::getProperties).filterIsInstance<FirPropertySymbol>()
 
         specialFunctions.getOrPut(name) {
-            doProcessSpecialFunctions(name, overriddenProperties, renamedSpecialBuiltInName)
+            collectSpecialFunctions(name, overriddenProperties, renamedSpecialBuiltInName)
         }.forEach {
             processor(it)
         }
     }
 
-    private fun doProcessSpecialFunctions(
+    /*
+     * "special" here means functions which can have different name in kotlin because of mapping builtins
+     */
+    private fun collectSpecialFunctions(
         name: Name,
         overriddenProperties: List<FirPropertySymbol>,
         renamedSpecialBuiltInName: Name?
@@ -256,14 +271,20 @@ class JavaClassUseSiteMemberScope(
             }
         }
 
-        addOverriddenSpecialMethods(name, result, declaredMemberScope)
+        addOverriddenSpecialMethods(name, result)
 
-        val overrideCandidates = result.toMutableSet()
+        val overrideCandidates = result.toSet()
 
-        superTypesScope.processFunctionsByName(name) { functionSymbol ->
-            val overriddenBy = functionSymbol.getOverridden(overrideCandidates)
-            if (overriddenBy == null && overriddenProperties.none { it.isOverriddenInClassBy(functionSymbol) }) {
-                result += functionSymbol
+        for ((chosenSymbolFromSupertype, _, _) in getFunctionsFromSupertypesByName(name)) {
+            val superSymbol = chosenSymbolFromSupertype.extractSomeSymbolFromSuperType()
+            val overriddenBy = superSymbol.getOverridden(overrideCandidates)
+            if (
+                overriddenBy == null &&
+                overriddenProperties.none { it.isOverriddenInClassBy(superSymbol) } &&
+                !superSymbol.doesOverrideRenamedBuiltins(renamedSpecialBuiltInName) &&
+                !superSymbol.shouldBeVisibleAsOverrideOfBuiltInWithErasedValueParameters()
+            ) {
+                result.add(chosenSymbolFromSupertype.symbol)
             }
         }
 
@@ -285,34 +306,37 @@ class JavaClassUseSiteMemberScope(
     private fun addOverriddenSpecialMethods(
         name: Name,
         result: MutableList<FirNamedFunctionSymbol>,
-        scope: FirScope,
     ) {
-        superTypesScope.processFunctionsByName(name) { fromSupertype ->
-            obtainOverrideForBuiltinWithDifferentJvmName(fromSupertype, scope, name)?.let {
+        for (fromSupertype in getFunctionsFromSupertypesByName(name)) {
+            obtainOverrideForBuiltinWithDifferentJvmName(fromSupertype, name)?.let {
                 directOverriddenFunctions[it] = listOf(fromSupertype)
-                overrideByBase[fromSupertype] = it
+                for (overriddenMember in fromSupertype.overriddenMembers) {
+                    overrideByBase[overriddenMember.member] = it
+                }
                 result += it
             }
 
-            obtainOverrideForBuiltInWithErasedValueParametersInJava(fromSupertype, scope)?.let {
+            obtainOverrideForBuiltInWithErasedValueParametersInJava(fromSupertype)?.let {
                 directOverriddenFunctions[it] = listOf(fromSupertype)
-                overrideByBase[fromSupertype] = it
+                for (overriddenMember in fromSupertype.overriddenMembers) {
+                    overrideByBase[overriddenMember.member] = it
+                }
                 result += it
             }
         }
     }
 
     private fun obtainOverrideForBuiltinWithDifferentJvmName(
-        symbol: FirNamedFunctionSymbol,
-        scope: FirScope,
+        symbolsFromSupertypes: ResultOfIntersection<FirNamedFunctionSymbol>,
         name: Name,
     ): FirNamedFunctionSymbol? {
-        val overriddenBuiltin = symbol.getOverriddenBuiltinWithDifferentJvmName() ?: return null
+        val overriddenBuiltin = symbolsFromSupertypes.getOverriddenBuiltinWithDifferentJvmName() ?: return null
 
+        val someSymbolFromSuperTypes = symbolsFromSupertypes.chosenSymbol.extractSomeSymbolFromSuperType()
         //if (unrelated) method with special name is already defined, we don't add renamed method at all
         //otherwise  we get methods ambiguity
         val alreadyDefined = declaredMemberScope.getFunctions(name).any { declaredSymbol ->
-            overrideChecker.isOverriddenFunction(declaredSymbol.fir, symbol.fir)
+            overrideChecker.isOverriddenFunction(declaredSymbol.fir, someSymbolFromSuperTypes.fir)
         }
         if (alreadyDefined) return null
 
@@ -320,12 +344,12 @@ class JavaClassUseSiteMemberScope(
             SpecialGenericSignatures.SIGNATURE_TO_JVM_REPRESENTATION_NAME[overriddenBuiltin.fir.computeJvmSignature() ?: return null]
                 ?: return null
 
-        for (candidateSymbol in scope.getFunctions(nameInJava)) {
+        for (candidateSymbol in declaredMemberScope.getFunctions(nameInJava)) {
             val candidateFir = candidateSymbol.fir
             val renamedCopy = buildJavaMethodCopy(candidateFir) {
                 this.name = name
                 this.symbol = FirNamedFunctionSymbol(CallableId(candidateFir.symbol.callableId.classId!!, name))
-                this.status = candidateFir.status.copy(isOperator = symbol.isOperator)
+                this.status = candidateFir.status.copy(isOperator = someSymbolFromSuperTypes.isOperator)
             }.apply {
                 initialSignatureAttr = candidateFir
             }
@@ -338,29 +362,25 @@ class JavaClassUseSiteMemberScope(
         return null
     }
 
-    private fun obtainOverrideForBuiltInWithErasedValueParametersInJava(
-        symbol: FirNamedFunctionSymbol,
-        scope: FirScope,
-    ): FirNamedFunctionSymbol? {
+    private fun obtainOverrideForBuiltInWithErasedValueParametersInJava(symbolsFromSupertypes: ResultOfIntersection<FirNamedFunctionSymbol>): FirNamedFunctionSymbol? {
         val overriddenBuiltin =
-            symbol.getOverriddenBuiltinFunctionWithErasedValueParametersInJava()
+            symbolsFromSupertypes.getOverriddenBuiltinFunctionWithErasedValueParametersInJava()
                 ?: return null
 
-        return createOverrideForBuiltinFunctionWithErasedParameterIfNeeded(symbol, overriddenBuiltin, scope)
+        return createOverrideForBuiltinFunctionWithErasedParameterIfNeeded(symbolsFromSupertypes, overriddenBuiltin)
     }
 
     private fun createOverrideForBuiltinFunctionWithErasedParameterIfNeeded(
-        fromSupertype: FirNamedFunctionSymbol,
-        overriddenBuiltin: FirNamedFunctionSymbol,
-        scope: FirScope,
+        symbolsFromSupertypes: ResultOfIntersection<FirNamedFunctionSymbol>,
+        overriddenBuiltin: FirNamedFunctionSymbol
     ): FirNamedFunctionSymbol? {
-        return scope.getFunctions(overriddenBuiltin.fir.name).firstOrNull { candidateOverride ->
+        return declaredMemberScope.getFunctions(overriddenBuiltin.fir.name).firstOrNull { candidateOverride ->
             candidateOverride.fir.computeJvmDescriptor() == overriddenBuiltin.fir.computeJvmDescriptor() &&
                     candidateOverride.hasErasedParameters()
         }?.let { override ->
             buildJavaMethodCopy(override.fir) {
                 this.valueParameters.clear()
-                override.fir.valueParameters.zip(fromSupertype.fir.valueParameters)
+                override.fir.valueParameters.zip(symbolsFromSupertypes.chosenSymbol.extractSomeSymbolFromSuperType().fir.valueParameters)
                     .mapTo(this.valueParameters) { (overrideParameter, parameterFromSupertype) ->
                         buildJavaValueParameterCopy(overrideParameter) {
                             this@buildJavaValueParameterCopy.returnTypeRef = parameterFromSupertype.returnTypeRef
@@ -402,7 +422,7 @@ class JavaClassUseSiteMemberScope(
         val currentJvmDescriptor = fir.computeJvmDescriptor(customName = renamedSpecialBuiltInName.asString())
 
         return builtinSpecialFromSuperTypes.any { builtinSpecial ->
-            builtinSpecial.fir.computeJvmDescriptor() == currentJvmDescriptor
+            builtinSpecial.chosenSymbol.extractSomeSymbolFromSuperType().fir.computeJvmDescriptor() == currentJvmDescriptor
         }
     }
 
@@ -419,27 +439,26 @@ class JavaClassUseSiteMemberScope(
         }
     }
 
-    private fun getFunctionsFromSupertypes(name: Name): List<FirNamedFunctionSymbol> {
-        val result = mutableListOf<FirNamedFunctionSymbol>()
-        superTypesScope.processFunctionsByName(name) {
-            result += it
-        }
-
-        return result
+    private fun getFunctionsFromSupertypes(name: Name): List<ResultOfIntersection<FirNamedFunctionSymbol>> {
+        return supertypeScopeContext.collectFunctions(name)
     }
 
-    private fun FirNamedFunctionSymbol.getOverriddenBuiltinWithDifferentJvmName(): FirNamedFunctionSymbol? {
+    private fun ResultOfIntersection<FirNamedFunctionSymbol>.getOverriddenBuiltinWithDifferentJvmName(): FirNamedFunctionSymbol? {
         var result: FirNamedFunctionSymbol? = null
 
-        if (SpecialGenericSignatures.SIGNATURE_TO_JVM_REPRESENTATION_NAME.containsKey(this.fir.computeJvmSignature())) {
-            return this
+        if (chosenSymbol is ChosenSymbol.RegularSymbol) {
+            val symbol = chosenSymbol.symbol
+            val signature = symbol.fir.computeJvmSignature()
+            if (signature in SpecialGenericSignatures.SIGNATURE_TO_JVM_REPRESENTATION_NAME) {
+                return symbol
+            }
         }
 
-        superTypesScope.processOverriddenFunctions(this) {
-            if (!it.isFromBuiltInClass(session)) return@processOverriddenFunctions ProcessorAction.NEXT
+        this.processOverrides processor@{
+            if (!it.isFromBuiltInClass(session)) return@processor ProcessorAction.NEXT
             if (SpecialGenericSignatures.SIGNATURE_TO_JVM_REPRESENTATION_NAME.containsKey(it.fir.computeJvmSignature())) {
                 result = it
-                return@processOverriddenFunctions ProcessorAction.STOP
+                return@processor ProcessorAction.STOP
             }
 
             ProcessorAction.NEXT
@@ -463,19 +482,30 @@ class JavaClassUseSiteMemberScope(
         }
     }
 
-    private fun FirNamedFunctionSymbol.getOverriddenBuiltinFunctionWithErasedValueParametersInJava(): FirNamedFunctionSymbol? {
+    private fun ResultOfIntersection<FirNamedFunctionSymbol>.getOverriddenBuiltinFunctionWithErasedValueParametersInJava(): FirNamedFunctionSymbol? {
         var result: FirNamedFunctionSymbol? = null
 
-        superTypesScope.processOverriddenFunctionsAndSelf(this) {
+        this.processOverrides processor@{
             if (it.fir.computeJvmSignature() in SpecialGenericSignatures.ERASED_VALUE_PARAMETERS_SIGNATURES) {
                 result = it
-                return@processOverriddenFunctionsAndSelf ProcessorAction.STOP
+                return@processor ProcessorAction.STOP
             }
 
             ProcessorAction.NEXT
         }
 
         return result
+    }
+
+    private fun ResultOfIntersection<FirNamedFunctionSymbol>.processOverrides(processor: (FirNamedFunctionSymbol) -> ProcessorAction) {
+        if (chosenSymbol.isIntersectionOverride()) {
+            for ((symbol, scope) in overriddenMembers) {
+                val action = scope.processOverriddenFunctionsAndSelf(symbol, processor)
+                if (action == ProcessorAction.STOP) break
+            }
+        } else {
+            containingScope?.processOverriddenFunctionsAndSelf(chosenSymbol.symbol, processor)
+        }
     }
 
     /**

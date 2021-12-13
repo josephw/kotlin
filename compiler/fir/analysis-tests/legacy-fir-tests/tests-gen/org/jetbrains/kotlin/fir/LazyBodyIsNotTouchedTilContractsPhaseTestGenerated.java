@@ -3098,6 +3098,11 @@ public class LazyBodyIsNotTouchedTilContractsPhaseTestGenerated extends Abstract
         public void testNoIntersectionOverrideOfTwoMembers_java() throws Exception {
             runTest("compiler/fir/analysis-tests/testData/resolve/scopes/noIntersectionOverrideOfTwoMembers_java.kt");
         }
+
+        @TestMetadata("specialFunctionInJava.kt")
+        public void testSpecialFunctionInJava() throws Exception {
+            runTest("compiler/fir/analysis-tests/testData/resolve/scopes/specialFunctionInJava.kt");
+        }
     }
 
     @TestMetadata("compiler/fir/analysis-tests/testData/resolve/smartcasts")

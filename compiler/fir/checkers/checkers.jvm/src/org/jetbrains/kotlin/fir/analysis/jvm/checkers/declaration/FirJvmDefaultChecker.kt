@@ -73,10 +73,10 @@ object FirJvmDefaultChecker : FirBasicDeclarationChecker() {
 
         if (declaration is FirClass) {
             val unsubstitutedScope = declaration.unsubstitutedScope(context)
-            val hasDeclaredJvmDefaults = unsubstitutedScope is FirClassUseSiteMemberScope &&
+            val hasDeclaredJvmDefaults = false /*unsubstitutedScope is FirClassUseSiteMemberScope &&
                     unsubstitutedScope.directOverriddenFunctions.keys.any {
                         it.isCompiledToJvmDefault(jvmDefaultMode)
-                    }
+                    }*/
             if (!hasDeclaredJvmDefaults && !declaration.checkJvmDefaultsInHierarchy(jvmDefaultMode, context)) {
                 reporter.reportOn(declaration.source, FirJvmErrors.JVM_DEFAULT_THROUGH_INHERITANCE, context)
             }
@@ -91,26 +91,27 @@ object FirJvmDefaultChecker : FirBasicDeclarationChecker() {
         if (this !is FirClass) return true
 
         val unsubstitutedScope = unsubstitutedScope(context)
-        if (unsubstitutedScope is FirClassUseSiteMemberScope) {
-            val directOverriddenFunctions = unsubstitutedScope.directOverriddenFunctions.flatMap { it.value }.toSet()
-
-            for (key in unsubstitutedScope.overrideByBase.keys) {
-                if (directOverriddenFunctions.contains(key)) {
-                    continue
-                }
-
-                if (key.getOverriddenDeclarations().all {
-                        it.modality == Modality.ABSTRACT ||
-                                !it.isCompiledToJvmDefaultWithProperMode(jvmDefaultMode) ||
-                                it.containingClass()?.toFirRegularClassSymbol(context.session)?.isInterface != true
-                    }
-                ) {
-                    continue
-                }
-
-                return false
-            }
-        }
+        // TODO
+//        if (unsubstitutedScope is FirClassUseSiteMemberScope) {
+//            val directOverriddenFunctions = unsubstitutedScope.directOverriddenFunctions.flatMap { it.value }.toSet()
+//
+//            for (key in unsubstitutedScope.overrideByBase.keys) {
+//                if (directOverriddenFunctions.contains(key)) {
+//                    continue
+//                }
+//
+//                if (key.getOverriddenDeclarations().all {
+//                        it.modality == Modality.ABSTRACT ||
+//                                !it.isCompiledToJvmDefaultWithProperMode(jvmDefaultMode) ||
+//                                it.containingClass()?.toFirRegularClassSymbol(context.session)?.isInterface != true
+//                    }
+//                ) {
+//                    continue
+//                }
+//
+//                return false
+//            }
+//        }
 
         return true
     }
