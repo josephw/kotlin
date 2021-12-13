@@ -39,7 +39,7 @@ interface AdditionalGradleProperties {
     object EmptyList : DefaultValues("emptyList()")
 }
 
-fun generateKotlinGradleOptions(withPrinterToFile: (targetFile: File, Printer.() -> Unit) -> Unit) {
+fun generateKotlinGradleOptions(withPrinterToFile: (targetFile: File, Printer.() -> Unit) -> Unit, out: PrintStream = System.out) {
     val apiSrcDir = File("libraries/tools/kotlin-gradle-plugin-api/src/main/kotlin")
     val srcDir = File("libraries/tools/kotlin-gradle-plugin/src/main/kotlin")
 
@@ -54,8 +54,8 @@ fun generateKotlinGradleOptions(withPrinterToFile: (targetFile: File, Printer.()
         )
     }
 
-    println("### Attributes common for JVM, JS, and JS DCE\n")
-    generateMarkdown(commonOptions + additionalOptions)
+    out.println("### Attributes common for JVM, JS, and JS DCE\n")
+    generateMarkdown(commonOptions + additionalOptions, out)
 
     val commonCompilerInterfaceFqName = FqName("org.jetbrains.kotlin.gradle.dsl.KotlinCommonOptions")
     val commonCompilerOptions = gradleOptions<CommonCompilerArguments>()
@@ -67,8 +67,8 @@ fun generateKotlinGradleOptions(withPrinterToFile: (targetFile: File, Printer.()
         )
     }
 
-    println("\n### Attributes common for JVM and JS\n")
-    generateMarkdown(commonCompilerOptions)
+    out.println("\n### Attributes common for JVM and JS\n")
+    generateMarkdown(commonCompilerOptions, out)
 
     // generate jvm interface
     val jvmInterfaceFqName = FqName("org.jetbrains.kotlin.gradle.dsl.KotlinJvmOptions")
@@ -93,8 +93,8 @@ fun generateKotlinGradleOptions(withPrinterToFile: (targetFile: File, Printer.()
         )
     }
 
-    println("\n### Attributes specific for JVM\n")
-    generateMarkdown(jvmOptions)
+    out.println("\n### Attributes specific for JVM\n")
+    generateMarkdown(jvmOptions, out)
 
     // generate js interface
     val jsInterfaceFqName = FqName("org.jetbrains.kotlin.gradle.dsl.KotlinJsOptions")
@@ -118,8 +118,8 @@ fun generateKotlinGradleOptions(withPrinterToFile: (targetFile: File, Printer.()
         )
     }
 
-    println("\n### Attributes specific for JS\n")
-    generateMarkdown(jsOptions)
+    out.println("\n### Attributes specific for JS\n")
+    generateMarkdown(jsOptions, out)
 
     // generate JS DCE interface and implementation
     val jsDceInterfaceFqName = FqName("org.jetbrains.kotlin.gradle.dsl.KotlinJsDceOptions")
@@ -314,9 +314,9 @@ private inline fun Printer.withIndent(fn: Printer.() -> Unit) {
     popIndent()
 }
 
-private fun generateMarkdown(properties: List<KProperty1<*, *>>) {
-    println("| Name | Description | Possible values |Default value |")
-    println("|------|-------------|-----------------|--------------|")
+private fun generateMarkdown(properties: List<KProperty1<*, *>>, out: PrintStream) {
+    out.println("| Name | Description | Possible values |Default value |")
+    out.println("|------|-------------|-----------------|--------------|")
     for (property in properties) {
         val name = property.name
         if (name == "includeRuntime") continue   // This option has no effect in Gradle builds
@@ -330,7 +330,7 @@ private fun generateMarkdown(properties: List<KProperty1<*, *>>) {
             else -> property.gradleDefaultValue
         }
 
-        println("| $renderName | $description | ${possibleValues.orEmpty().joinToString()} | $defaultValue |")
+        out.println("| $renderName | $description | ${possibleValues.orEmpty().joinToString()} | $defaultValue |")
     }
 }
 

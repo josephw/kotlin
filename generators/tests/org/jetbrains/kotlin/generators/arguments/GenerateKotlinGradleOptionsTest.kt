@@ -39,6 +39,15 @@ class GenerateKotlinGradleOptionsTest : TestCase() {
             KtUsefulTestCase.assertSameLinesWithFile(file.absolutePath, upToDateContent)
         }
 
-        generateKotlinGradleOptions(::getPrinter)
+        val outStream = ByteArrayOutputStream()
+        PrintStream(outStream).use { out ->
+            try {
+                generateKotlinGradleOptions(::getPrinter, out)
+            } catch (ex: Throwable) {
+                val message = outStream.toString()
+                println(message)
+                throw ex
+            }
+        }
     }
 }
