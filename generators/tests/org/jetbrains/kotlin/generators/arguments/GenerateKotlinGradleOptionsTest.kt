@@ -23,6 +23,7 @@ import org.jetbrains.kotlin.test.testFramework.KtUsefulTestCase
 import org.jetbrains.kotlin.utils.Printer
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.OutputStream
 import java.io.PrintStream
 
 class GenerateKotlinGradleOptionsTest : TestCase() {
@@ -39,6 +40,11 @@ class GenerateKotlinGradleOptionsTest : TestCase() {
             KtUsefulTestCase.assertSameLinesWithFile(file.absolutePath, upToDateContent)
         }
 
-        generateKotlinGradleOptions(::getPrinter)
+        val fakeOutputStream = object : OutputStream() {
+            override fun write(b: Int) {}
+        }
+        PrintStream(fakeOutputStream).use { out ->
+            generateKotlinGradleOptions(::getPrinter, out)
+        }
     }
 }
