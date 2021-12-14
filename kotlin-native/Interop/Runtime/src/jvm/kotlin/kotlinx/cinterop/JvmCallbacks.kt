@@ -533,11 +533,10 @@ private external fun newGlobalRef(any: Any): Long
 private external fun derefGlobalRef(ref: Long): Any
 private external fun deleteGlobalRef(ref: Long)
 
-//private external fun setEnv(name: Long, value: Long)
+private external fun setEnv(name: Long, value: Long)
 
 fun setEnv(name: String, value: String) {
     memScoped {
-        if (name == "zzz") println("BUGBUGBUG: $value")
-        //setEnv(name.cstr.getPointer(memScope).rawValue, value.cstr.getPointer(memScope).rawValue)
+        setEnv(name.cstr.getPointer(memScope).rawValue, value.cstr.getPointer(memScope).rawValue)
     }
 }

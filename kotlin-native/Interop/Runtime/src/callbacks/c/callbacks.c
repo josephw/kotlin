@@ -4,26 +4,25 @@
 #include <jni.h>
 #include <ffi.h>
 
-//#ifdef _WIN32
-//
-//#include <windows.h>
-//
-//static void setEnv(const char* name, const char* value) {
-//  SetEnvironmentVariableA(name, value);
-//}
-//
-//#else
-//
-//static void setEnv(const char* name, const char* value) {
-//  setenv(name, value, 1);
-//}
-//
-//#endif
+#ifdef _WIN32
 
-//JNIEXPORT void JNICALL Java_kotlinx_cinterop_JvmCallbacksKt_setEnv(JNIEnv* jniEnv, jclass jclss, jlong p0, jlong p1) {
-//    if (p0 == 123456789) *(int*)1=1;
-//    //setEnv((char*)p0, (char*)p1);
-//}
+#include <windows.h>
+
+static void setEnv(const char* name, const char* value) {
+  SetEnvironmentVariableA(name, value);
+}
+
+#else
+
+static void setEnv(const char* name, const char* value) {
+  setenv(name, value, 1);
+}
+
+#endif
+
+JNIEXPORT void JNICALL Java_kotlinx_cinterop_JvmCallbacksKt_setEnv(JNIEnv* jniEnv, jclass jclss, jlong p0, jlong p1) {
+    setEnv((char*)p0, (char*)p1);
+}
 
 /*
  * Class:     kotlinx_cinterop_JvmCallbacksKt

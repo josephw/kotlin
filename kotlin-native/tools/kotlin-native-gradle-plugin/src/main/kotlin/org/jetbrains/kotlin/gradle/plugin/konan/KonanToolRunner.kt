@@ -120,7 +120,7 @@ internal class CliToolConfig(konanHome: String, target: String) : AbstractToolCo
         // Load libclang into the system class loader. This is needed to allow developers to make changes
         // in the tooling infrastructure without having to stop the daemon (otherwise libclang might end up
         // loaded in two different class loaders which is not allowed by the JVM).
-        //load0.invoke(Runtime.getRuntime(), String::class.java, libclang)
+        load0.invoke(Runtime.getRuntime(), String::class.java, libclang)
     }
 }
 
@@ -130,7 +130,7 @@ internal class KonanCliInteropRunner(
         additionalJvmArgs: List<String> = emptyList(),
         konanHome: String = project.konanHome
 ) : KonanCliRunner("cinterop", project, additionalJvmArgs, konanHome) {
-    override val mustRunViaExec get() = true//false
+    override val mustRunViaExec get() = false
 
     override val execEnvironment by lazy {
         val result = mutableMapOf<String, String>()

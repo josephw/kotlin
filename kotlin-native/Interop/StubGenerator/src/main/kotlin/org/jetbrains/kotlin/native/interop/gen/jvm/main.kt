@@ -469,9 +469,9 @@ internal fun prepareTool(target: String?, flavor: KotlinPlatform, runFromDaemon:
         ToolConfig(target, flavor, propertyOverrides).also {
             if (runFromDaemon) {
                 setEnv("LIBCLANG_DISABLE_CRASH_RECOVERY", "1") // For in-process invocation have to setup proper environment manually.
-            } //else {
+            } else {
                 it.prepare() // Daemon prepares the tool himself. (See KonanToolRunner.kt)
-            //}
+            }
         }
 
 internal fun buildNativeLibrary(
