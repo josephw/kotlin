@@ -3,11 +3,10 @@
 // NO_VALIDATION
 
 @Suppress("UNRESOLVED_REFERENCE")
-@Suppress("CANNOT_INFER_PARAMETER_TYPE")
 object NonExistentType {
     val a: ABCDEF? = null
     val b: List<ABCDEF>? = null
-    val c: (ABCDEF) -> Unit = { f -> }
+    val c: (ABCDEF) -> Unit = { f: ABCDEF -> }
     val d: ABCDEF<String, (List<ABCDEF>) -> Unit>? = null
     
     val foo: Foo get() = Foo()
