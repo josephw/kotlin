@@ -6,6 +6,7 @@
 package org.jetbrains.kotlin.js.test.converters
 
 import org.jetbrains.kotlin.backend.common.phaser.PhaseConfig
+import org.jetbrains.kotlin.backend.common.phaser.toPhaseMap
 import org.jetbrains.kotlin.backend.common.serialization.signature.IdSignatureDescriptor
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
@@ -18,7 +19,6 @@ import org.jetbrains.kotlin.ir.backend.js.codegen.generateEsModules
 import org.jetbrains.kotlin.ir.backend.js.lower.serialization.ir.JsManglerDesc
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.IrModuleToJsTransformer
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.IrModuleToJsTransformerTmp
-import org.jetbrains.kotlin.ir.declarations.impl.IrFactoryImpl
 import org.jetbrains.kotlin.ir.declarations.impl.IrFactoryImplForJsIC
 import org.jetbrains.kotlin.ir.util.IrMessageLogger
 import org.jetbrains.kotlin.ir.util.SymbolTable
@@ -33,6 +33,7 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi2ir.Psi2IrConfiguration
 import org.jetbrains.kotlin.psi2ir.Psi2IrTranslator
 import org.jetbrains.kotlin.serialization.js.ModuleKind
+import org.jetbrains.kotlin.test.DebugMode
 import org.jetbrains.kotlin.test.directives.JsEnvironmentConfigurationDirectives
 import org.jetbrains.kotlin.test.frontend.classic.ClassicFrontendOutputArtifact
 import org.jetbrains.kotlin.test.frontend.classic.moduleDescriptorProvider
@@ -103,6 +104,22 @@ class JsIrBackendFacade(
             ).dump(module)
         }
 
+        val debugMode = DebugMode.fromSystemProperty("kotlin.js.debugMode")
+        val phaseConfig = if (debugMode >= DebugMode.DEBUG) {
+            val allPhasesSet = if (debugMode >= DebugMode.SUPER_DEBUG) jsPhases.toPhaseMap().values.toSet() else emptySet()
+            val dumpOutputDir = File(
+                JsEnvironmentConfigurator.getJsArtifactsOutputDir(testServices),
+                JsEnvironmentConfigurator.getJsArtifactSimpleName(testServices, module.name) + "-irdump"
+            )
+            PhaseConfig(
+                jsPhases,
+                dumpToDirectory = dumpOutputDir.path,
+                toDumpStateAfter = allPhasesSet
+            )
+        } else {
+            PhaseConfig(jsPhases)
+        }
+
         val loweredIr = compileIr(
             irModuleFragment,
             MainModule.Klib(inputArtifact.outputFile.absolutePath),
@@ -111,7 +128,7 @@ class JsIrBackendFacade(
             irModuleFragment.irBuiltins,
             symbolTable,
             deserializer,
-            PhaseConfig(jsPhases), // TODO debug mode
+            phaseConfig,
             exportedDeclarations = setOf(FqName.fromSegments(listOfNotNull(testPackage, TEST_FUNCTION))),
             dceDriven = false,
             dceRuntimeDiagnostic = null,
