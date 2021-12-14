@@ -92,7 +92,7 @@ internal class KonanCliCompilerRunner(
         val useArgFile: Boolean = true,
         konanHome: String = project.konanHome
 ) : KonanCliRunner("konanc", project, additionalJvmArgs, konanHome) {
-    override val mustRunViaExec get() = true//false
+    override val mustRunViaExec get() = false
 
     override fun transformArgs(args: List<String>): List<String> {
         if (!useArgFile) return super.transformArgs(args)
@@ -168,5 +168,5 @@ internal class KonanKlibRunner(
         additionalJvmArgs: List<String> = emptyList(),
         konanHome: String = project.konanHome
 ) : KonanCliRunner("klib", project, additionalJvmArgs, konanHome) {
-    override val mustRunViaExec get() = true//false
+    override val mustRunViaExec get() = false
 }
