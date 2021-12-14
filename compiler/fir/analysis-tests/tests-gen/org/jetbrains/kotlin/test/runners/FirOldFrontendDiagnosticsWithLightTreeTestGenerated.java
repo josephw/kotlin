@@ -27970,6 +27970,12 @@ public class FirOldFrontendDiagnosticsWithLightTreeTestGenerated extends Abstrac
             }
 
             @Test
+            @TestMetadata("noSmartcastForNonFinalMembersFromJava.kt")
+            public void testNoSmartcastForNonFinalMembersFromJava() throws Exception {
+                runTest("compiler/testData/diagnostics/tests/smartCasts/noSmartcastForNonFinalMembersFromJava.kt");
+            }
+
+            @Test
             @TestMetadata("noUnnecessarySmartCastForReceiver.kt")
             public void testNoUnnecessarySmartCastForReceiver() throws Exception {
                 runTest("compiler/testData/diagnostics/tests/smartCasts/noUnnecessarySmartCastForReceiver.kt");

@@ -15,6 +15,7 @@ import org.jetbrains.kotlin.fir.contracts.description.ConeConstantReference
 import org.jetbrains.kotlin.fir.contracts.description.ConeReturnsEffectDeclaration
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyAccessor
+import org.jetbrains.kotlin.fir.declarations.utils.isFinal
 import org.jetbrains.kotlin.fir.declarations.utils.isLocal
 import org.jetbrains.kotlin.fir.expressions.*
 import org.jetbrains.kotlin.fir.references.FirControlFlowGraphReference
@@ -475,6 +476,12 @@ abstract class FirDataFlowAnalyzer<FLOW : Flow>(
 
         val node = graphBuilder.exitEqualityOperatorCall(equalityOperatorCall).mergeIncomingFlow()
         val operation = equalityOperatorCall.operation
+        val leftOperandSymbol = leftOperand.toResolvedCallableSymbol()
+        val rightOperandSymbol = rightOperand.toResolvedCallableSymbol()
+
+        val areNonFinalSymbolsFromJava =
+            leftOperandSymbol?.origin == FirDeclarationOrigin.Java && !leftOperandSymbol.isFinal ||
+                    rightOperandSymbol?.origin == FirDeclarationOrigin.Java && !rightOperandSymbol.isFinal
 
         val leftConst = leftOperand as? FirConstExpression<*>
         val rightConst = rightOperand as? FirConstExpression<*>
@@ -485,8 +492,8 @@ abstract class FirDataFlowAnalyzer<FLOW : Flow>(
 
         when {
             leftConst != null && rightConst != null -> return
-            leftIsNull -> processEqNull(node, rightOperand, operation)
-            rightIsNull -> processEqNull(node, leftOperand, operation)
+            leftIsNull && !areNonFinalSymbolsFromJava -> processEqNull(node, rightOperand, operation)
+            rightIsNull && !areNonFinalSymbolsFromJava -> processEqNull(node, leftOperand, operation)
             leftConst != null -> processEqWithConst(node, rightOperand, leftConst, operation)
             rightConst != null -> processEqWithConst(node, leftOperand, rightConst, operation)
             else -> processEq(node, leftOperand, rightOperand, operation)
