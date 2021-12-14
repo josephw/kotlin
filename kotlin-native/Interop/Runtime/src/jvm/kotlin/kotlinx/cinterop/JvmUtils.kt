@@ -154,13 +154,17 @@ private fun loadKonanLibrary(dir: String, fullLibraryName: String): Boolean {
 
 fun loadKonanLibrary(name: String) {
     val fullLibraryName = System.mapLibraryName(name)
-    val defaultNativeLibsDir = "${KonanHomeProvider.determineKonanHome()}/konan/nativelib"
-    if (loadKonanLibrary(defaultNativeLibsDir, fullLibraryName))
-        return
     val paths = initializePath()
     for (dir in paths) {
         if (loadKonanLibrary(dir, fullLibraryName)) return
     }
+    val defaultNativeLibsDir = try {
+        "${KonanHomeProvider.determineKonanHome()}/konan/nativelib"
+    } catch (t: Throwable) {
+        null
+    }
+    if (defaultNativeLibsDir != null && loadKonanLibrary(defaultNativeLibsDir, fullLibraryName))
+        return
     error("Lib $fullLibraryName is not found in $defaultNativeLibsDir and ${paths.joinToString { it }}")
     //System.getProperty("PATH")
     //val dir = "${KonanHomeProvider.determineKonanHome()}/konan/nativelib"
