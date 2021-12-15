@@ -153,48 +153,48 @@ private fun loadKonanLibrary(dir: String, fullLibraryName: String): Boolean {
 }
 
 fun loadKonanLibrary(name: String) {
-    val fullLibraryName = System.mapLibraryName(name)
-    val paths = initializePath()
-    for (dir in paths) {
-        if (loadKonanLibrary(dir, fullLibraryName)) return
-    }
-    val defaultNativeLibsDir = try {
-        "${KonanHomeProvider.determineKonanHome()}/konan/nativelib"
-    } catch (t: Throwable) {
-        null
-    }
-    if (defaultNativeLibsDir != null && loadKonanLibrary(defaultNativeLibsDir, fullLibraryName))
-        return
-    error("Lib $fullLibraryName is not found in $defaultNativeLibsDir and ${paths.joinToString { it }}")
-    //System.getProperty("PATH")
-    //val dir = "${KonanHomeProvider.determineKonanHome()}/konan/nativelib"
-
-
-//    try {
-//        System.loadLibrary(name)
-//    } catch (e: UnsatisfiedLinkError) {
-//        val fullLibraryName = System.mapLibraryName(name)
-//        val dir = "${KonanHomeProvider.determineKonanHome()}/konan/nativelib"
-//        try {
-//            System.load("$dir/$fullLibraryName")
-//        } catch (e: UnsatisfiedLinkError) {
-//            if (fullLibraryName.endsWith(".dylib") && e.message?.contains("library load disallowed by system policy") == true) {
-//                throw UnsatisfiedLinkError("""
-//                        |Library $dir/$fullLibraryName can't be loaded.
-//                        |${'\t'}This can happen because library file is marked as untrusted (e.g because it was downloaded from browser).
-//                        |${'\t'}You can trust libraries in distribution by running
-//                        |${'\t'}${'\t'}xattr -d com.apple.quarantine '$dir'/*
-//                        |${'\t'}command in terminal
-//                        |${'\t'}Original exception message:
-//                        |${'\t'}${e.message}
-//                        """.trimMargin())
-//            }
-//            val tempDir = Files.createTempDirectory(Paths.get(dir), null).toAbsolutePath().toString()
-//            Files.createLink(Paths.get(tempDir, fullLibraryName), Paths.get(dir, fullLibraryName))
-//            // TODO: Does not work on Windows. May be use FILE_FLAG_DELETE_ON_CLOSE?
-//            File(tempDir).deleteOnExit()
-//            File("$tempDir/$fullLibraryName").deleteOnExit()
-//            System.load("$tempDir/$fullLibraryName")
-//        }
+//    val fullLibraryName = System.mapLibraryName(name)
+//    val paths = initializePath()
+//    for (dir in paths) {
+//        if (loadKonanLibrary(dir, fullLibraryName)) return
 //    }
+//    val defaultNativeLibsDir = try {
+//        "${KonanHomeProvider.determineKonanHome()}/konan/nativelib"
+//    } catch (t: Throwable) {
+//        null
+//    }
+//    if (defaultNativeLibsDir != null && loadKonanLibrary(defaultNativeLibsDir, fullLibraryName))
+//        return
+//    error("Lib $fullLibraryName is not found in $defaultNativeLibsDir and ${paths.joinToString { it }}")
+//    //System.getProperty("PATH")
+//    //val dir = "${KonanHomeProvider.determineKonanHome()}/konan/nativelib"
+
+
+    try {
+        System.loadLibrary(name)
+    } catch (e: UnsatisfiedLinkError) {
+        val fullLibraryName = System.mapLibraryName(name)
+        val dir = "${KonanHomeProvider.determineKonanHome()}/konan/nativelib"
+        try {
+            System.load("$dir/$fullLibraryName")
+        } catch (e: UnsatisfiedLinkError) {
+            if (fullLibraryName.endsWith(".dylib") && e.message?.contains("library load disallowed by system policy") == true) {
+                throw UnsatisfiedLinkError("""
+                        |Library $dir/$fullLibraryName can't be loaded.
+                        |${'\t'}This can happen because library file is marked as untrusted (e.g because it was downloaded from browser).
+                        |${'\t'}You can trust libraries in distribution by running
+                        |${'\t'}${'\t'}xattr -d com.apple.quarantine '$dir'/*
+                        |${'\t'}command in terminal
+                        |${'\t'}Original exception message:
+                        |${'\t'}${e.message}
+                        """.trimMargin())
+            }
+            val tempDir = Files.createTempDirectory(Paths.get(dir), null).toAbsolutePath().toString()
+            Files.createLink(Paths.get(tempDir, fullLibraryName), Paths.get(dir, fullLibraryName))
+            // TODO: Does not work on Windows. May be use FILE_FLAG_DELETE_ON_CLOSE?
+            File(tempDir).deleteOnExit()
+            File("$tempDir/$fullLibraryName").deleteOnExit()
+            System.load("$tempDir/$fullLibraryName")
+        }
+    }
 }
