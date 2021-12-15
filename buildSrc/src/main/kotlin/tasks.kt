@@ -110,7 +110,7 @@ fun Project.projectTest(
     }
     return getOrCreateTask<Test>(taskName) {
         doFirst {
-            val commandLineIncludePatterns = (filter as? DefaultTestFilter)?.commandLineIncludePatterns?.toMutableList() ?: mutableSetOf()
+            val commandLineIncludePatterns = commandLineIncludePatterns.toMutableSet()
             val patterns = filter.includePatterns + commandLineIncludePatterns
             if (patterns.isEmpty() || patterns.any { '*' in it }) return@doFirst
             patterns.forEach { pattern ->
@@ -242,6 +242,9 @@ fun Project.projectTest(
         }
     }.apply { configure(body) }
 }
+
+val Test.commandLineIncludePatterns: Set<String>
+    get() = (filter as? DefaultTestFilter)?.commandLineIncludePatterns.orEmpty()
 
 private inline fun String.isFirstChar(f: (Char) -> Boolean) = isNotEmpty() && f(first())
 
