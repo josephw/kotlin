@@ -102,6 +102,17 @@ public object Platform {
     public var isCleanersLeakCheckerActive: Boolean
         get() = Platform_getCleanersLeakChecker()
         set(value) = Platform_setCleanersLeakChecker(value)
+
+    /**
+     * Number of logical processors avaible for current thread.
+     *
+     * Can be not equal to number of processors in system, if some restrictions on processor usage was succesfully detected.
+     * Best efford is done to be compatible with java Runtime.avalibleProcessors(), but no guarantees on full compatibility provided.
+     *
+     * Value provided is not robust and should be only considered as hint to number of threads can be run in parallel.
+     */
+    public val availableProcessors: Int
+        get() = Platform_availableProcessors()
 }
 
 @GCUnsafeCall("Konan_Platform_canAccessUnaligned")
@@ -133,6 +144,10 @@ private external fun Platform_getCleanersLeakChecker(): Boolean
 
 @GCUnsafeCall("Konan_Platform_setCleanersLeakChecker")
 private external fun Platform_setCleanersLeakChecker(value: Boolean): Unit
+
+@GCUnsafeCall("Konan_Platform_availableProcessors")
+private external fun Platform_availableProcessors(): Int
+
 
 @TypedIntrinsic(IntrinsicType.IS_EXPERIMENTAL_MM)
 @ExperimentalStdlibApi
