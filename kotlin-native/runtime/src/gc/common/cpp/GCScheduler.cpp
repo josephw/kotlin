@@ -18,7 +18,7 @@ using namespace kotlin;
 namespace {
 
 class GCEmptySchedulerData : public gc::GCSchedulerData {
-    void OnSafePoint(gc::GCSchedulerThreadData& threadData) noexcept override {}
+    void UpdateFromThreadData(gc::GCSchedulerThreadData& threadData) noexcept override {}
     void OnPerformFullGC() noexcept override {}
     void UpdateAliveSetBytes(size_t bytes) noexcept override {}
 };
@@ -31,7 +31,7 @@ public:
             return std::chrono::microseconds(config_.regularGcIntervalUs);
         }) {}
 
-    void OnSafePoint(gc::GCSchedulerThreadData& threadData) noexcept override {
+    void UpdateFromThreadData(gc::GCSchedulerThreadData& threadData) noexcept override {
         size_t allocatedBytes = threadData.allocatedBytes();
         if (allocatedBytes > config_.allocationThresholdBytes) {
             RuntimeAssert(static_cast<bool>(scheduleGC_), "scheduleGC_ cannot be empty");
@@ -75,7 +75,7 @@ public:
         timeOfLastGcNs_(currentTimeCallbackNs_()),
         scheduleGC_(std::move(scheduleGC)) {}
 
-    void OnSafePoint(gc::GCSchedulerThreadData& threadData) noexcept override {
+    void UpdateFromThreadData(gc::GCSchedulerThreadData& threadData) noexcept override {
         size_t allocatedBytes = threadData.allocatedBytes();
         if (allocatedBytes > config_.allocationThresholdBytes ||
             currentTimeCallbackNs_() - timeOfLastGcNs_ >= config_.cooldownThresholdNs) {
@@ -106,7 +106,7 @@ public:
         config.allocationThresholdBytes = 10000;
     }
 
-    void OnSafePoint(gc::GCSchedulerThreadData& threadData) noexcept override { scheduleGC_(); }
+    void UpdateFromThreadData(gc::GCSchedulerThreadData& threadData) noexcept override { scheduleGC_(); }
 
     void OnPerformFullGC() noexcept override {}
     void UpdateAliveSetBytes(size_t bytes) noexcept override {}

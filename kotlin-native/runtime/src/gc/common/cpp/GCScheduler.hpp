@@ -38,7 +38,7 @@ public:
     virtual ~GCSchedulerData() = default;
 
     // Called by different mutator threads.
-    virtual void OnSafePoint(GCSchedulerThreadData& threadData) noexcept = 0;
+    virtual void UpdateFromThreadData(GCSchedulerThreadData& threadData) noexcept = 0;
 
     // Always called by the GC thread.
     virtual void OnPerformFullGC() noexcept = 0;
@@ -52,13 +52,14 @@ public:
     static constexpr size_t kFunctionPrologueWeight = 1;
     static constexpr size_t kLoopBodyWeight = 1;
 
-    explicit GCSchedulerThreadData(GCSchedulerConfig& config, std::function<void(GCSchedulerThreadData&)> onSafePoint) noexcept :
-        config_(config), onSafePoint_(std::move(onSafePoint)) {
+    explicit GCSchedulerThreadData(GCSchedulerConfig& config, std::function<void(GCSchedulerThreadData&)> slowPath) noexcept :
+        config_(config), slowPath_(std::move(slowPath)) {
         ClearCountersAndUpdateThresholds();
     }
 
     // Should be called on encountering a safepoint.
     void OnSafePointRegular(size_t weight) noexcept {
+        // TODO: This is a weird design. Consider replacing switch+virtual functions with pimpl+separate compilation.
         switch (compiler::getGCSchedulerType()) {
             case compiler::GCSchedulerType::kOnSafepoints:
             case compiler::GCSchedulerType::kAggressive:
@@ -91,7 +92,7 @@ public:
 
 private:
     void OnSafePointSlowPath() noexcept {
-        onSafePoint_(*this);
+        slowPath_(*this);
         ClearCountersAndUpdateThresholds();
     }
 
@@ -104,7 +105,7 @@ private:
     }
 
     GCSchedulerConfig& config_;
-    std::function<void(GCSchedulerThreadData&)> onSafePoint_;
+    std::function<void(GCSchedulerThreadData&)> slowPath_;
 
     size_t allocatedBytes_ = 0;
     size_t allocatedBytesThreshold_ = 0;
@@ -128,7 +129,7 @@ public:
     void SetScheduleGC(std::function<void()> scheduleGC) noexcept;
 
     GCSchedulerThreadData NewThreadData() noexcept {
-        return GCSchedulerThreadData(config_, [this](auto& threadData) { gcData_->OnSafePoint(threadData); });
+        return GCSchedulerThreadData(config_, [this](auto& threadData) { gcData_->UpdateFromThreadData(threadData); });
     }
 
 private:
